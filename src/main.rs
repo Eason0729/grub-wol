@@ -1,3 +1,5 @@
+#![feature(future_join)]
+
 pub mod client;
 pub mod event;
 pub mod server;

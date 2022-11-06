@@ -198,6 +198,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fff857943da45f546682664a79488be82e69e43c1a7a2307679ab9afb3a66d2e"
 
 [[package]]
+name = "client"
+version = "0.1.0"
+dependencies = [
+ "proto",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -302,11 +309,8 @@ checksum = "22030e2c5a68ec659fde1e949a745124b48e6fa8b045b7ed5bd1fe4ccc5c4e5d"
 name = "grub-wol-2"
 version = "0.1.0"
 dependencies = [
- "petgraph",
- "proto",
- "protocol",
- "smol",
- "tiny_http",
+ "client",
+ "server",
 ]
 
 [[package]]
@@ -517,6 +521,17 @@ name = "serde"
 version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d193d69bae983fc11a79df82342761dfbf28a99fc8d203dca4c3c1b590948965"
+
+[[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "petgraph",
+ "proto",
+ "protocol",
+ "smol",
+ "tiny_http",
+]
 
 [[package]]
 name = "signal-hook"

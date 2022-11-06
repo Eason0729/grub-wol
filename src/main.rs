@@ -1,9 +1,7 @@
-#![feature(future_join)]
-
-pub mod client;
+pub mod constant;
 pub mod event;
-pub mod server;
-pub mod status;
+pub mod proto;
+pub mod wol;
 
 fn main() {
     println!("Hello, world!");

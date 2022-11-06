@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::pin::Pin;
 use std::task::{self};
 use std::{collections::*, future::Future};
@@ -38,6 +38,18 @@ where
             true
         }
     }
+    fn find_pop(&mut self, f: impl Fn(&V) -> bool) -> Option<(K, V)> {
+        let mut element = None;
+        'outer: for (key, val) in &mut self.tree {
+            for i in (0..val.len()).rev() {
+                if !f(&val[i]) {
+                    element = Some((key.clone(), val.swap_remove(i)));
+                    break 'outer;
+                }
+            }
+        }
+        element
+    }
 }
 
 impl<K, V> Default for BTreeVec<K, V>
@@ -51,7 +63,7 @@ where
     }
 }
 
-struct Ignitor<S>
+pub struct Ignitor<S>
 where
     S: Ord + Clone,
 {
@@ -65,7 +77,7 @@ impl<S> Ignitor<S>
 where
     S: Ord + Clone,
 {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             registry_counter: 0,
             id_counter: 0,
@@ -73,25 +85,31 @@ where
             registry: BTreeVec::default(),
         }
     }
-    fn signal(&mut self, s: &S) {
+    pub fn cancel(&mut self, id: usize) -> bool {
+        if let Some((_, (_, waker))) = self.registry.find_pop(move |(pid, _)| *pid != id) {
+            self.pending.remove(&id);
+            waker.wake();
+            true
+        } else {
+            false
+        }
+    }
+    pub fn signal(&mut self, s: &S) {
         if let Some((id, waker)) = self.registry.pop(s) {
             self.pending.remove(&id);
             waker.wake();
         }
     }
-    async fn register(&mut self, signal: S) -> Result<(), Error> {
-        // let id = self.id_counter;
-        // self.id_counter += 1;
-        // self.pending.insert(id);
-        // SignalWait {
-        //     ignitor: self as *mut _,
-        //     _ignitor: self,
-        //     signal,
-        //     id,
-        // }
-        // .await?;
-        // Ok(())
-        todo!()
+    pub async fn register(&mut self, signal: S) -> Result<(), Error> {
+        let id = self.id_counter;
+        self.id_counter += 1;
+        self.pending.insert(id);
+        SignalWait {
+            ignitor: RefCell::new(self),
+            signal,
+            id,
+        }
+        .await
     }
 }
 
@@ -103,7 +121,9 @@ where
         Self::new()
     }
 }
-enum Error {
+
+#[derive(Debug)]
+pub enum Error {
     UserInterruption,
 }
 
@@ -111,8 +131,7 @@ struct SignalWait<'a, S>
 where
     S: Ord + Clone,
 {
-    ignitor: *mut Ignitor<S>,
-    _ignitor: &'a mut Ignitor<S>,
+    ignitor: RefCell<&'a mut Ignitor<S>>,
     signal: S,
     id: usize,
 }
@@ -127,7 +146,7 @@ where
         let waker = cx.waker().clone();
         let id = self.id;
         let signal = self.signal.clone();
-        let ignitor = unsafe { &mut *self.ignitor };
+        let ignitor = &mut self.ignitor.borrow_mut();
 
         if ignitor.registry_counter == id {
             ignitor.registry_counter += 1;
@@ -144,29 +163,40 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::future::join;
-
-    use std::thread;
+    use std::cell::UnsafeCell;
+    use std::sync::Mutex;
     use std::time::Duration;
 
     use super::*;
     use smol;
-    use smol::lock::Mutex;
 
     #[test]
     fn basic() {
-        // let mut ignitor = Ignitor::default();
+        let mut ignitor = Ignitor::default();
+        let ignitor = UnsafeCell::new(&mut ignitor);
+        let output = Mutex::new(0_usize);
+        let ex = smol::LocalExecutor::new();
 
-        // let fa = async {
-        //     smol::Timer::after(Duration::from_secs(2)).await;
-        //     ignitor.signal(&1);
-        // };
-        // let fb = async {
-        //     ignitor.register(1).await;
-        //     println!("t");
-        // };
+        ex.spawn(async {
+            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.get() };
+            smol::Timer::after(Duration::from_secs(2)).await;
+            ignitor.signal(&1);
+        })
+        .detach();
 
-        // smol::block_on(async {
-        // });
+        ex.spawn(async {
+            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.get() };
+            ignitor.register(1).await.unwrap();
+            *output.lock().unwrap() = 1;
+        })
+        .detach();
+
+        loop {
+            ex.try_tick();
+            if ex.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(*output.lock().unwrap(), 1);
     }
 }

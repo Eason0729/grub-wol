@@ -1,13 +1,13 @@
-use protocol::Protocol;
-use petgraph::Graph;
-use crate::constant;
 use super::*;
+use crate::constant;
+use petgraph::Graph;
+use protocol::Protocol;
 
 #[derive(Protocol, Debug, PartialEq)]
 enum Event {
     Handshake(HandShake),
     Request(Request),
-    Response(Request,Response),
+    Response(Request, Response),
 }
 
 #[derive(Protocol, Debug, PartialEq)]
@@ -20,22 +20,22 @@ struct HandShake {
 enum Request {
     ShutDown,
     GrubReboot,
-    GrubQuery
+    GrubQuery,
 }
 
 #[derive(Protocol, Debug, PartialEq)]
 enum Response {
     Success,
-    GrubData(GrubData)
+    GrubData(GrubData),
 }
 
 #[derive(Protocol, Debug, PartialEq)]
-struct GrubData{
-    list:Vec<OperatingSystem>
+struct GrubData {
+    list: Vec<OperatingSystem>,
 }
 
 #[derive(Protocol, Debug, PartialEq)]
-pub struct OperatingSystem{
-    grub_sec:constant::Integer,
-    name:String,
+pub struct OperatingSystem {
+    grub_sec: constant::Integer,
+    name: String,
 }

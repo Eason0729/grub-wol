@@ -26,6 +26,14 @@ where
         let content = unsafe { &mut *self.content.get() };
         content.register(s).await
     }
+    pub async fn poll_until(
+        &self,
+        signal: S,
+        f: impl Fn() + 'static,
+    ) -> Result<(), ignitor::Error> {
+        let content = unsafe { &mut *self.content.get() };
+        content.poll_until(signal, f).await
+    }
 }
 
 impl<S> Default for EventQueue<S>

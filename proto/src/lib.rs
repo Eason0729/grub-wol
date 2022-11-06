@@ -1,2 +1,2 @@
-pub mod proto;
 pub mod constant;
+pub mod proto;

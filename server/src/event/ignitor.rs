@@ -111,6 +111,18 @@ where
         }
         .await
     }
+    pub async fn poll_until(&mut self, signal: S, f: impl Fn() + 'static) -> Result<(), Error> {
+        let id = self.id_counter;
+        self.id_counter += 1;
+        self.pending.insert(id);
+        SignalPoll {
+            ignitor: RefCell::new(self),
+            f: Box::new(f),
+            signal,
+            id,
+        }
+        .await
+    }
 }
 
 impl<S> Default for Ignitor<S>
@@ -153,6 +165,44 @@ where
             ignitor.registry.push(signal, (id, waker));
         } else if ignitor.registry_counter > id {
             if ignitor.pending.get(&id).is_none() {
+                return task::Poll::Ready(Ok(()));
+            }
+        }
+
+        task::Poll::Pending
+    }
+}
+
+struct SignalPoll<'a, S>
+where
+    S: Ord + Clone,
+{
+    ignitor: RefCell<&'a mut Ignitor<S>>,
+    signal: S,
+    f: Box<dyn Fn()>,
+    id: usize,
+}
+
+impl<'a, S> Future for SignalPoll<'a, S>
+where
+    S: Ord + Clone,
+{
+    type Output = Result<(), Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+        (self.f)();
+
+        let waker = cx.waker().clone();
+        let id = self.id;
+        let signal = self.signal.clone();
+        let ignitor = &mut self.ignitor.borrow_mut();
+
+        if ignitor.registry_counter == id {
+            ignitor.registry_counter += 1;
+            ignitor.registry.push(signal, (id, waker));
+        } else if ignitor.registry_counter > id {
+            if ignitor.pending.get(&id).is_none() {
+                waker.wake();
                 return task::Poll::Ready(Ok(()));
             }
         }

@@ -1,6 +1,7 @@
 use protocol::Protocol;
 use petgraph::Graph;
 use crate::constant;
+use super::*;
 
 #[derive(Protocol, Debug, PartialEq)]
 enum Event {
@@ -25,5 +26,16 @@ enum Request {
 #[derive(Protocol, Debug, PartialEq)]
 enum Response {
     Success,
-    // Graph(Graph<>)
+    GrubData(GrubData)
+}
+
+#[derive(Protocol, Debug, PartialEq)]
+struct GrubData{
+    list:Vec<OperatingSystem>
+}
+
+#[derive(Protocol, Debug, PartialEq)]
+pub struct OperatingSystem{
+    grub_sec:constant::Integer,
+    name:String,
 }

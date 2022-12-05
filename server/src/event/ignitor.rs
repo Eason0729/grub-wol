@@ -100,7 +100,7 @@ where
             waker.wake();
         }
     }
-    pub async fn register(&mut self, signal: S) -> Result<(), Error> {
+    pub async fn register(&mut self, signal: S) {
         let id = self.id_counter;
         self.id_counter += 1;
         self.pending.insert(id);
@@ -111,7 +111,7 @@ where
         }
         .await
     }
-    pub async fn poll_until(&mut self, signal: S, f: impl Fn() + 'static) -> Result<(), Error> {
+    pub async fn poll_until(&mut self, signal: S, f: impl Fn() + 'static) {
         let id = self.id_counter;
         self.id_counter += 1;
         self.pending.insert(id);
@@ -134,11 +134,6 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    UserInterruption,
-}
-
 struct SignalWait<'a, S>
 where
     S: Ord + Clone,
@@ -152,7 +147,7 @@ impl<'a, S> Future for SignalWait<'a, S>
 where
     S: Ord + Clone,
 {
-    type Output = Result<(), Error>;
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         let waker = cx.waker().clone();
@@ -165,7 +160,7 @@ where
             ignitor.registry.push(signal, (id, waker));
         } else if ignitor.registry_counter > id {
             if ignitor.pending.get(&id).is_none() {
-                return task::Poll::Ready(Ok(()));
+                return task::Poll::Ready(());
             }
         }
 
@@ -187,7 +182,7 @@ impl<'a, S> Future for SignalPoll<'a, S>
 where
     S: Ord + Clone,
 {
-    type Output = Result<(), Error>;
+    type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         (self.f)();
@@ -203,7 +198,7 @@ where
         } else if ignitor.registry_counter > id {
             if ignitor.pending.get(&id).is_none() {
                 waker.wake();
-                return task::Poll::Ready(Ok(()));
+                return task::Poll::Ready(());
             }
         }
 
@@ -213,7 +208,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::cell::UnsafeCell;
+    use std::cell::{Cell, UnsafeCell};
     use std::sync::Mutex;
     use std::time::Duration;
 
@@ -223,20 +218,20 @@ mod test {
     #[test]
     fn basic() {
         let mut ignitor = Ignitor::default();
-        let ignitor = UnsafeCell::new(&mut ignitor);
+        let ignitor = Cell::new(&mut ignitor);
         let output = Mutex::new(0_usize);
         let ex = smol::LocalExecutor::new();
 
         ex.spawn(async {
-            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.get() };
+            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.as_ptr() };
             smol::Timer::after(Duration::from_secs(2)).await;
             ignitor.signal(&1);
         })
         .detach();
 
         ex.spawn(async {
-            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.get() };
-            ignitor.register(1).await.unwrap();
+            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.as_ptr() };
+            ignitor.register(1).await;
             *output.lock().unwrap() = 1;
         })
         .detach();

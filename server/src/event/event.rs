@@ -1,42 +1,38 @@
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 
 use super::ignitor;
 
-struct EventQueue<S>
+pub struct EventHook<S>
 where
     S: Ord + Clone,
 {
-    content: UnsafeCell<ignitor::Ignitor<S>>,
+    content: Cell<ignitor::Ignitor<S>>,
 }
 
-impl<S> EventQueue<S>
+impl<S> EventHook<S>
 where
     S: Ord + Clone,
 {
     pub fn new() -> Self {
         Self {
-            content: UnsafeCell::new(ignitor::Ignitor::default()),
+            content: Cell::new(ignitor::Ignitor::default()),
         }
     }
     pub fn signal(&self, s: &S) {
-        let content = unsafe { &mut *self.content.get() };
+        let content = unsafe { &mut *self.content.as_ptr() };
         content.signal(s);
     }
-    pub async fn register(&self, s: S) -> Result<(), ignitor::Error> {
-        let content = unsafe { &mut *self.content.get() };
+    pub async fn register(&self, s: S) {
+        let content = unsafe { &mut *self.content.as_ptr() };
         content.register(s).await
     }
-    pub async fn poll_until(
-        &self,
-        signal: S,
-        f: impl Fn() + 'static,
-    ) -> Result<(), ignitor::Error> {
-        let content = unsafe { &mut *self.content.get() };
+    pub async fn poll_until(&self, signal: S, f: impl Fn() + 'static) {
+        let content = unsafe { &mut *self.content.as_ptr() };
         content.poll_until(signal, f).await
     }
 }
 
-impl<S> Default for EventQueue<S>
+impl<S> Default for EventHook<S>
 where
     S: Ord + Clone,
 {
@@ -55,7 +51,7 @@ mod test {
 
     #[test]
     fn basic() {
-        let event_q = EventQueue::default();
+        let event_q = EventHook::default();
         let output = AtomicUsize::new(0);
         let ex = smol::LocalExecutor::new();
 
@@ -69,7 +65,7 @@ mod test {
 
         for _ in 0..100 {
             ex.spawn(async {
-                event_q.register(1).await.unwrap();
+                event_q.register(1).await;
                 output.fetch_add(1, Ordering::Relaxed);
             })
             .detach();

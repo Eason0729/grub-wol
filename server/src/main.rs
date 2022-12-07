@@ -1,6 +1,5 @@
-pub mod db;
-pub mod event;
 pub mod grub;
+pub mod packet;
 pub mod wol;
 
 fn main() {

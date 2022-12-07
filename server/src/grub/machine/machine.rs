@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 use std::{fs, io, net, path};
 
-use crate::event;
-
 use super::graph::Graph;
 
 use proto::prelude as protocal;

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::pin::Pin;
 use std::task::{self};
 use std::{collections::*, future::Future};
@@ -100,26 +100,19 @@ where
             waker.wake();
         }
     }
-    pub async fn register(&mut self, signal: S) {
-        let id = self.id_counter;
-        self.id_counter += 1;
-        self.pending.insert(id);
-        SignalWait {
-            ignitor: RefCell::new(self),
-            signal,
-            id,
-        }
-        .await
-    }
-    pub async fn poll_until(&mut self, signal: S, f: impl Fn() + 'static) {
+    pub async fn register<F>(&mut self, signal: S,should_wake:bool, f: F)
+    where
+        F: Fn() -> bool,
+    {
         let id = self.id_counter;
         self.id_counter += 1;
         self.pending.insert(id);
         SignalPoll {
+            f,
             ignitor: RefCell::new(self),
-            f: Box::new(f),
             signal,
             id,
+            should_wake
         }
         .await
     }
@@ -134,58 +127,29 @@ where
     }
 }
 
-struct SignalWait<'a, S>
+struct SignalPoll<'a, S, F>
 where
     S: Ord + Clone,
+    F: Fn() -> bool,
 {
+    f: F,
     ignitor: RefCell<&'a mut Ignitor<S>>,
     signal: S,
     id: usize,
+    should_wake:bool
 }
 
-impl<'a, S> Future for SignalWait<'a, S>
+impl<'a, S, F> Future for SignalPoll<'a, S, F>
 where
     S: Ord + Clone,
+    F: Fn() -> bool,
 {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
-        let waker = cx.waker().clone();
-        let id = self.id;
-        let signal = self.signal.clone();
-        let ignitor = &mut self.ignitor.borrow_mut();
-
-        if ignitor.registry_counter == id {
-            ignitor.registry_counter += 1;
-            ignitor.registry.push(signal, (id, waker));
-        } else if ignitor.registry_counter > id {
-            if ignitor.pending.get(&id).is_none() {
-                return task::Poll::Ready(());
-            }
+        if (self.f)() {
+            return task::Poll::Ready(());
         }
-
-        task::Poll::Pending
-    }
-}
-
-struct SignalPoll<'a, S>
-where
-    S: Ord + Clone,
-{
-    ignitor: RefCell<&'a mut Ignitor<S>>,
-    signal: S,
-    f: Box<dyn Fn()>,
-    id: usize,
-}
-
-impl<'a, S> Future for SignalPoll<'a, S>
-where
-    S: Ord + Clone,
-{
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
-        (self.f)();
 
         let waker = cx.waker().clone();
         let id = self.id;
@@ -197,18 +161,19 @@ where
             ignitor.registry.push(signal, (id, waker));
         } else if ignitor.registry_counter > id {
             if ignitor.pending.get(&id).is_none() {
-                waker.wake();
+                if self.should_wake{
+                    waker.wake();
+                }
                 return task::Poll::Ready(());
             }
         }
-
         task::Poll::Pending
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::cell::{Cell, UnsafeCell};
+    use std::cell::Cell;
     use std::sync::Mutex;
     use std::time::Duration;
 
@@ -217,21 +182,53 @@ mod test {
 
     #[test]
     fn basic() {
-        let mut ignitor = Ignitor::default();
-        let ignitor = Cell::new(&mut ignitor);
+        let ignitor = Ignitor::default();
+        let ignitor = RefCell::new(ignitor);
         let output = Mutex::new(0_usize);
         let ex = smol::LocalExecutor::new();
 
         ex.spawn(async {
-            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.as_ptr() };
+            let mut ignitor=ignitor.borrow_mut();
             smol::Timer::after(Duration::from_secs(2)).await;
             ignitor.signal(&1);
         })
         .detach();
 
         ex.spawn(async {
-            let ignitor: &mut Ignitor<usize> = unsafe { *ignitor.as_ptr() };
-            ignitor.register(1).await;
+            let mut ignitor=ignitor.borrow_mut();
+            ignitor.register(1, false,|| false).await;
+            *output.lock().unwrap() = 1;
+        })
+        .detach();
+
+        loop {
+            ex.try_tick();
+            if ex.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(*output.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn poll(){
+        let ignitor = Ignitor::default();
+        let ignitor = RefCell::new(ignitor);
+        let output = Mutex::new(0_usize);
+        let ex = smol::LocalExecutor::new();
+
+        ex.spawn(async {
+            let mut ignitor=ignitor.borrow_mut();
+            smol::Timer::after(Duration::from_secs(2)).await;
+            ignitor.signal(&1);
+        })
+        .detach();
+
+        ex.spawn(async {
+            let mut ignitor=ignitor.borrow_mut();
+            ignitor.register(1, true,|| {
+                false
+            }).await;
             *output.lock().unwrap() = 1;
         })
         .detach();

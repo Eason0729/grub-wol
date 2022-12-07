@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
 use std::{fs, io, net, path};
 
-use crate::event;
-
 use super::graph::Graph;
 use super::machine;
 
@@ -52,7 +50,7 @@ struct State {
     alive_os: OperatingSystem,
     conn: protocal::Conn,
     session_id: usize,
-    ignitor: event::EventHook<Singal>,
+    // ignitor: event::EventHook<Singal>,
 }
 
 impl State {

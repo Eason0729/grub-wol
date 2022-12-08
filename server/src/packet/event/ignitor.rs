@@ -1,170 +1,133 @@
-use std::cell::{Cell, RefCell};
+use super::coll::BTreeVec;
+use std::cell::RefCell;
 use std::pin::Pin;
 use std::task::{self};
 use std::{collections::*, future::Future};
 
-struct BTreeVec<K, V>
-where
-    K: Ord + Clone,
-{
-    tree: BTreeMap<K, Vec<V>>,
-}
-
-impl<K, V> BTreeVec<K, V>
-where
-    K: Ord + Clone,
-{
-    fn push(&mut self, key: K, val: V) {
-        if let Some(content) = self.tree.get_mut(&key) {
-            content.push(val);
-        } else {
-            self.tree.insert(key, vec![val]);
-        }
-    }
-    fn pop(&mut self, key: &K) -> Option<V> {
-        if let Some(content) = self.tree.get_mut(key) {
-            let result = content.pop();
-            if content.is_empty() {
-                self.tree.remove(key);
-            }
-            return result;
-        }
-        None
-    }
-    fn is_empty(&self, key: &K) -> bool {
-        if let Some(x) = self.tree.get(key) {
-            x.is_empty()
-        } else {
-            true
-        }
-    }
-    fn find_pop(&mut self, f: impl Fn(&V) -> bool) -> Option<(K, V)> {
-        let mut element = None;
-        'outer: for (key, val) in &mut self.tree {
-            for i in (0..val.len()).rev() {
-                if !f(&val[i]) {
-                    element = Some((key.clone(), val.swap_remove(i)));
-                    break 'outer;
-                }
-            }
-        }
-        element
-    }
-}
-
-impl<K, V> Default for BTreeVec<K, V>
-where
-    K: Ord + Clone,
-{
-    fn default() -> Self {
-        Self {
-            tree: Default::default(),
-        }
-    }
-}
-
-pub struct Ignitor<S>
+pub struct Registry<S, P>
 where
     S: Ord + Clone,
+    P: Ord + Default,
 {
     registry_counter: usize,
     id_counter: usize,
     pending: BTreeSet<usize>,
-    registry: BTreeVec<S, (usize, task::Waker)>,
+    wakers: BTreeVec<S, (usize, task::Waker)>,
+    payloads: BTreeVec<usize, P>,
 }
 
-impl<S> Ignitor<S>
+pub struct Ignitor<S, P>
 where
     S: Ord + Clone,
+    P: Ord + Default,
+{
+    registry: RefCell<Registry<S, P>>,
+}
+
+impl<S, P> Ignitor<S, P>
+where
+    S: Ord + Clone,
+    P: Ord + Default,
 {
     pub fn new() -> Self {
         Self {
-            registry_counter: 0,
-            id_counter: 0,
-            pending: BTreeSet::default(),
-            registry: BTreeVec::default(),
+            registry: RefCell::new(Registry {
+                registry_counter: 0,
+                id_counter: 0,
+                pending: BTreeSet::default(),
+                wakers: BTreeVec::default(),
+                payloads: BTreeVec::default(),
+            }),
         }
     }
-    pub fn cancel(&mut self, id: usize) -> bool {
-        if let Some((_, (_, waker))) = self.registry.find_pop(move |(pid, _)| *pid != id) {
-            self.pending.remove(&id);
+    pub fn cancel(&self, id: usize) -> bool {
+        let mut registry = self.registry.borrow_mut();
+        if let Some((_, (_, waker))) = registry.wakers.find_pop(move |(pid, _)| *pid != id) {
+            registry.pending.remove(&id);
             waker.wake();
             true
         } else {
             false
         }
     }
-    pub fn signal(&mut self, s: &S) {
-        if let Some((id, waker)) = self.registry.pop(s) {
-            self.pending.remove(&id);
+    pub fn signal(&self, s: &S, payload: P) {
+        let mut registry = self.registry.borrow_mut();
+        if let Some((id, waker)) = registry.wakers.pop(s) {
+            registry.payloads.push(id, payload);
+            registry.pending.remove(&id);
             waker.wake();
         }
     }
-    pub async fn register<F>(&mut self, signal: S,should_wake:bool, f: F)
+    #[inline]
+    pub fn register<F>(&self, signal: S, should_wake: bool, f: F) -> SignalPoll<S, P, F>
     where
         F: Fn() -> bool,
     {
-        let id = self.id_counter;
-        self.id_counter += 1;
-        self.pending.insert(id);
+        let mut registry = self.registry.borrow_mut();
+        let id = registry.id_counter;
+        registry.id_counter += 1;
+        registry.pending.insert(id);
         SignalPoll {
             f,
-            ignitor: RefCell::new(self),
+            ignitor: &self,
             signal,
             id,
-            should_wake
+            should_wake,
         }
-        .await
     }
 }
 
-impl<S> Default for Ignitor<S>
+impl<S, P> Default for Ignitor<S, P>
 where
     S: Ord + Clone,
+    P: Ord + Default,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-struct SignalPoll<'a, S, F>
+pub struct SignalPoll<'a, S, P, F>
 where
     S: Ord + Clone,
+    P: Ord + Default,
     F: Fn() -> bool,
 {
     f: F,
-    ignitor: RefCell<&'a mut Ignitor<S>>,
+    ignitor: &'a Ignitor<S, P>,
     signal: S,
     id: usize,
-    should_wake:bool
+    should_wake: bool,
 }
 
-impl<'a, S, F> Future for SignalPoll<'a, S, F>
+impl<'a, S, P, F> Future for SignalPoll<'a, S, P, F>
 where
     S: Ord + Clone,
+    P: Ord + Default,
     F: Fn() -> bool,
 {
-    type Output = ();
+    type Output = P;
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         if (self.f)() {
-            return task::Poll::Ready(());
+            return task::Poll::Ready(P::default());
         }
 
-        let waker = cx.waker().clone();
         let id = self.id;
         let signal = self.signal.clone();
-        let ignitor = &mut self.ignitor.borrow_mut();
 
-        if ignitor.registry_counter == id {
-            ignitor.registry_counter += 1;
-            ignitor.registry.push(signal, (id, waker));
-        } else if ignitor.registry_counter > id {
-            if ignitor.pending.get(&id).is_none() {
-                if self.should_wake{
-                    waker.wake();
-                }
-                return task::Poll::Ready(());
+        let mut registry = self.ignitor.registry.borrow_mut();
+
+        if registry.registry_counter == id {
+            registry.registry_counter += 1;
+            registry.wakers.push(signal, (id, cx.waker().clone()));
+        } else if registry.registry_counter > id {
+            if registry.pending.get(&id).is_none() {
+                let payload = registry.payloads.pop(&id).unwrap();
+                return task::Poll::Ready(payload);
+            }
+            if self.should_wake {
+                cx.waker().wake_by_ref();
             }
         }
         task::Poll::Pending
@@ -183,20 +146,17 @@ mod test {
     #[test]
     fn basic() {
         let ignitor = Ignitor::default();
-        let ignitor = RefCell::new(ignitor);
         let output = Mutex::new(0_usize);
         let ex = smol::LocalExecutor::new();
 
         ex.spawn(async {
-            let mut ignitor=ignitor.borrow_mut();
             smol::Timer::after(Duration::from_secs(2)).await;
-            ignitor.signal(&1);
+            ignitor.signal(&1, ());
         })
         .detach();
 
         ex.spawn(async {
-            let mut ignitor=ignitor.borrow_mut();
-            ignitor.register(1, false,|| false).await;
+            ignitor.register(1, false, || false).await;
             *output.lock().unwrap() = 1;
         })
         .detach();
@@ -211,24 +171,69 @@ mod test {
     }
 
     #[test]
-    fn poll(){
+    fn payload() {
         let ignitor = Ignitor::default();
-        let ignitor = RefCell::new(ignitor);
         let output = Mutex::new(0_usize);
         let ex = smol::LocalExecutor::new();
 
         ex.spawn(async {
-            let mut ignitor=ignitor.borrow_mut();
             smol::Timer::after(Duration::from_secs(2)).await;
-            ignitor.signal(&1);
+            ignitor.signal(&1, 3_usize);
         })
         .detach();
 
         ex.spawn(async {
-            let mut ignitor=ignitor.borrow_mut();
-            ignitor.register(1, true,|| {
-                false
-            }).await;
+            *output.lock().unwrap() = ignitor.register(1, false, || false).await;
+        })
+        .detach();
+
+        loop {
+            ex.try_tick();
+            if ex.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(*output.lock().unwrap(), 3_usize);
+    }
+
+    #[test]
+    fn poll() {
+        let ignitor = Ignitor::default();
+        let output = Cell::new(0_usize);
+        let ex = smol::LocalExecutor::new();
+
+        ex.spawn(async {
+            smol::Timer::after(Duration::from_secs(2)).await;
+            ignitor.signal(&1, ());
+        })
+        .detach();
+
+        ex.spawn(async {
+            ignitor
+                .register(1, true, || {
+                    output.set(output.get() + 1);
+                    false
+                })
+                .await;
+        })
+        .detach();
+
+        loop {
+            ex.try_tick();
+            if ex.is_empty() {
+                break;
+            }
+        }
+        assert!(output.take() > 0);
+    }
+    #[test]
+    fn break_poll() {
+        let ignitor: Ignitor<i32, ()> = Ignitor::default();
+        let output = Mutex::new(0_usize);
+        let ex = smol::LocalExecutor::new();
+
+        ex.spawn(async {
+            ignitor.register(1, true, || true).await;
             *output.lock().unwrap() = 1;
         })
         .detach();
@@ -239,6 +244,7 @@ mod test {
                 break;
             }
         }
+
         assert_eq!(*output.lock().unwrap(), 1);
     }
 }

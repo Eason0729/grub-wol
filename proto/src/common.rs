@@ -11,9 +11,9 @@ pub enum Packet {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct HandShake {
-    mac_address: [u8; 6],
-    uid: constant::ID,
-    version: constant::APIVersionType,
+    pub mac_address: [u8; 6],
+    pub uid: constant::ID,
+    pub version: constant::APIVersionType,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -32,13 +32,13 @@ pub enum Answer {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GrubData {
-    list: Vec<GrubDescription>,
+    pub list: Vec<GrubDescription>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GrubDescription {
-    grub_sec: constant::Integer,
-    display_name: String,
+    pub grub_sec: constant::Integer,
+    pub display_name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

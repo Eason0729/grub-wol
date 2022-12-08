@@ -93,6 +93,9 @@ where
 
         Ok(packet)
     }
+    pub fn shutdown(self){
+        drop(self);
+    }
 }
 
 #[cfg(test)]

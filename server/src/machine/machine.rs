@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 use std::{fs, io, net, path};
 
+use crate::packet::Packets;
+
 use super::graph::Graph;
 
 use proto::prelude as protocal;
@@ -17,10 +19,33 @@ struct GrubAction {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Machines {}
+struct Server {
+    machines: BTreeMap<MacAddress, Machine>,
+    #[serde(skip)]
+    packets: Packets,
+}
 
-impl Machines {
+impl Server {
     fn connect(&mut self) {
         // connect to one machine instance by mac address
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Machine {
+    boot_graph: Graph<OS, usize>,
+}
+
+impl Machine {
+    fn new_instance(&mut self) {}
+}
+
+#[derive(Ord, PartialOrd, PartialEq, Eq, Serialize, Deserialize)]
+struct OS {
+    display_name: String,
+    id: protocal::ID,
+}
+
+struct MachineInstance {
+    id: protocal::ID,
 }

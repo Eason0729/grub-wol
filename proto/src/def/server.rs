@@ -13,5 +13,4 @@ pub enum Packet {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct HandShake {
     pub version: constant::APIVersionType,
-    pub id: constant::ID,
 }

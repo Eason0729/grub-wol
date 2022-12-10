@@ -1,4 +1,4 @@
-pub mod grub;
+pub mod machine;
 pub mod packet;
 pub mod wol;
 

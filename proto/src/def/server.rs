@@ -6,8 +6,10 @@ use crate::constant;
 pub enum Packet {
     HandShake(HandShake),
     Reboot(constant::ID),
+    InitId(constant::ID),
     ShutDown,
     GrubQuery,
+    IsAlive
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

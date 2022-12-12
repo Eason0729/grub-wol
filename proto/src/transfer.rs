@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net;
+use std::vec;
 use std::{error, marker::PhantomData};
 use thiserror;
 
@@ -41,10 +42,11 @@ where
     pub async fn send(&mut self, packet: UP) -> Result<(), Error> {
         let binary = bincode::serialize(&packet)?;
         let size = binary.len() as PrefixType;
-        let size = bincode::serialize(&size)?;
-
+        let mut size = bincode::serialize(&size)?;
+        
+        size.extend_from_slice(binary.as_slice());
         self.upstream.write_all(&size).await?;
-        self.upstream.write_all(&binary).await?;
+
         Ok(())
     }
     pub async fn read(&mut self) -> Result<DP, Error> {

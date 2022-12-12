@@ -49,6 +49,13 @@ where
         let edge = Edge::new(child, value);
         self.edges[parent].push(edge);
     }
+    pub fn has_direct_edge(&mut self, from: Node, to: Node) -> bool {
+        let mut contain = false;
+        self.edges[from.0].iter().for_each(|edge| {
+            contain = true;
+        });
+        contain
+    }
     pub fn dijkstra(&mut self, from: &Node, dist: &Node) -> Option<Vec<&E>> {
         type NodeId = usize;
         type Distance = usize;

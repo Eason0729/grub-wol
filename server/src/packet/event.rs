@@ -7,53 +7,8 @@ use std::{collections::*, future::Future};
 
 use smol::future::or;
 
-struct BTreeVec<K, V>
-where
-    K: Ord,
-{
-    tree: BTreeMap<K, Vec<V>>,
-}
+use super::btree::*;
 
-impl<K, V> Default for BTreeVec<K, V>
-where
-    K: Ord,
-{
-    fn default() -> Self {
-        Self {
-            tree: Default::default(),
-        }
-    }
-}
-
-impl<K, V> BTreeVec<K, V>
-where
-    K: Ord,
-{
-    fn push(&mut self, key: K, val: V) {
-        if let Some(content) = self.tree.get_mut(&key) {
-            content.push(val);
-        } else {
-            self.tree.insert(key, vec![val]);
-        }
-    }
-    fn pop(&mut self, key: &K) -> Option<V> {
-        if let Some(content) = self.tree.get_mut(key) {
-            let result = content.pop();
-            if content.is_empty() {
-                self.tree.remove(key);
-            }
-            return result;
-        }
-        None
-    }
-    fn is_empty(&self, key: &K) -> bool {
-        if let Some(x) = self.tree.get(key) {
-            x.is_empty()
-        } else {
-            true
-        }
-    }
-}
 
 struct Registry<S, P>
 where
@@ -222,6 +177,9 @@ where
         let mut registry = self.registry.borrow_mut();
         let id = registry.id_counter;
         registry.id_counter += 1;
+
+        registry.signals.push(signal, id);
+
         SignalPoll {
             ignitor: &self,
             id,
@@ -273,7 +231,7 @@ mod test {
 
         ex.spawn(async {
             smol::Timer::after(Duration::from_millis(20)).await;
-            for _ in 0..200 {
+            for _ in 0..100 {
                 event_q.signal(&1, 2);
             }
         })

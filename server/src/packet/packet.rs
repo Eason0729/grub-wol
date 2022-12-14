@@ -40,7 +40,7 @@ impl Packets {
             .signal(&raw_packet.mac_address.clone(), raw_packet)
         {
             Some(raw_packet) => Ok(Some(Packet {
-                unused_receive:BTreeVec::default(),
+                unused_receive: BTreeVec::default(),
                 manager: self,
                 raw: Some(raw_packet),
             })),
@@ -90,16 +90,16 @@ impl RawPacket {
     }
 }
 
-#[derive(PartialEq, PartialOrd,Eq,Ord   )]
+#[derive(PartialEq, PartialOrd, Eq, Ord)]
 enum ReceivePacketType {
     GrubQuery,
     IsAlive,
-    Invaild
+    Invaild,
 }
 
 impl ReceivePacketType {
-    fn from_packet(packet:&host::Packet)->Self{
-        match packet{
+    fn from_packet(packet: &host::Packet) -> Self {
+        match packet {
             host::Packet::HandShake(_) => ReceivePacketType::Invaild,
             host::Packet::GrubQuery(_) => ReceivePacketType::GrubQuery,
             host::Packet::IsAlive(_) => ReceivePacketType::IsAlive,
@@ -110,18 +110,18 @@ impl ReceivePacketType {
 /// managed packet
 pub struct Packet<'a> {
     manager: &'a Packets,
-    unused_receive: BTreeVec<ReceivePacketType,host::Packet>,
+    unused_receive: BTreeVec<ReceivePacketType, host::Packet>,
     raw: Option<RawPacket>,
 }
 
 impl<'a> Packet<'a> {
-    pub fn get_handshake_uid(&mut self)->Result<protocal::ID, Error>{
-        let raw=ok_or_ref!(self.raw, Error::ClientOffline);
-        Ok(raw.uid)            
+    pub fn get_handshake_uid(&mut self) -> Result<protocal::ID, Error> {
+        let raw = ok_or_ref!(self.raw, Error::ClientOffline);
+        Ok(raw.uid)
     }
-    pub fn fake_handshake_uid(&mut self,id:protocal::ID)->Result<(), Error>{
-        let raw=ok_or_ref!(self.raw, Error::ClientOffline);
-        raw.uid=id;
+    pub fn fake_handshake_uid(&mut self, id: protocal::ID) -> Result<(), Error> {
+        let raw = ok_or_ref!(self.raw, Error::ClientOffline);
+        raw.uid = id;
         Ok(())
     }
     pub async fn wait_reconnect(&mut self) -> Result<(), Error> {
@@ -147,23 +147,23 @@ impl<'a> Packet<'a> {
             .map_err(|_| Error::ClientDisconnect)?;
         Ok(())
     }
-    async fn read(&mut self,packet_type:ReceivePacketType)-> Result<host::Packet, Error>{
+    async fn read(&mut self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
         // TODO: add timeout
-        if let Some(packet)=self.unused_receive.pop(&packet_type){
-          Ok(packet)
-        }else{
-            loop{
+        if let Some(packet) = self.unused_receive.pop(&packet_type) {
+            Ok(packet)
+        } else {
+            loop {
                 let packet = ok_or_ref!(self.raw, Error::ClientOffline)
-                .conn
-                .read()
-                .await
-                .map_err(|_| Error::ClientDisconnect)?;
-                let receive_type=ReceivePacketType::from_packet(&packet);
-    
-                if receive_type==packet_type{
+                    .conn
+                    .read()
+                    .await
+                    .map_err(|_| Error::ClientDisconnect)?;
+                let receive_type = ReceivePacketType::from_packet(&packet);
+
+                if receive_type == packet_type {
                     return Ok(packet);
-                }else{
-                    self.unused_receive.push(receive_type,packet);
+                } else {
+                    self.unused_receive.push(receive_type, packet);
                 }
             }
         }

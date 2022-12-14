@@ -9,7 +9,6 @@ use smol::future::or;
 
 use super::btree::*;
 
-
 struct Registry<S, P>
 where
     S: Ord,

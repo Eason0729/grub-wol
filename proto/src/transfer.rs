@@ -43,7 +43,7 @@ where
         let binary = bincode::serialize(&packet)?;
         let size = binary.len() as PrefixType;
         let mut size = bincode::serialize(&size)?;
-        
+
         size.extend_from_slice(binary.as_slice());
         self.upstream.write_all(&size).await?;
 

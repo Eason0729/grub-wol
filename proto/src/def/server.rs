@@ -9,7 +9,7 @@ pub enum Packet {
     InitId(constant::ID),
     ShutDown,
     GrubQuery,
-    IsAlive
+    IsAlive,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

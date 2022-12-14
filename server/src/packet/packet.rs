@@ -91,7 +91,7 @@ impl RawPacket {
 }
 
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
-enum ReceivePacketType {
+pub enum ReceivePacketType {
     GrubQuery,
     IsAlive,
     Invaild,

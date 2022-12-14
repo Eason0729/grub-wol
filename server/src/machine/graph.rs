@@ -1,10 +1,10 @@
-use serde;
+use nanoserde::{DeBin,SerBin};
 use std::{
     collections::{BTreeMap, VecDeque},
     fmt::Debug,
 };
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, DeBin,SerBin)] 
 pub struct Graph<V, E>
 where
     V: Ord,
@@ -104,7 +104,7 @@ where
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, DeBin,SerBin)]
 pub struct Edge<E> {
     to: usize,
     value: E,

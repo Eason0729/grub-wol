@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
+use nanoserde::{DeBin,SerBin};
 
 use crate::constant;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(DeBin,SerBin, Debug, PartialEq)]
 pub enum Packet {
     HandShake(HandShake),
     Reboot(constant::ID),
@@ -12,7 +12,7 @@ pub enum Packet {
     IsAlive
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(DeBin,SerBin, Debug, PartialEq)]
 pub struct HandShake {
     pub version: constant::APIVersionType,
 }

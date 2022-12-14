@@ -7,4 +7,5 @@ pub use packet::Packets;
 pub use packet::Error;
 
 pub mod proto {
+    pub use proto::prelude::GrubDescription;
 }

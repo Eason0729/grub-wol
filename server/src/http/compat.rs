@@ -16,47 +16,11 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
-use smol::{future, io, prelude::*, Async};
-
-/// Serves a request and returns a response.
-async fn serve(req: Request<Body>, host: String) -> Result<Response<Body>, Error> {
-    println!("Serving {}{}", host, req.uri());
-    Ok(Response::new(Body::from("Hello from hyper!")))
-}
-
-/// Listens for incoming connections and serves them.
-async fn listen(listener: Async<TcpListener>) -> Result<(), Error> {
-    // Format the full host address.
-    let host = &format!("http://{}", listener.get_ref().local_addr()?);
-    println!("Listening on {}", host);
-
-    // Start a hyper server.
-    Server::builder(SmolListener::new(&listener))
-        .executor(SmolExecutor)
-        .serve(make_service_fn(move |_| {
-            let host = host.clone();
-            async { Ok::<_, Error>(service_fn(move |req| serve(req, host.clone()))) }
-        }))
-        .await?;
-
-    Ok(())
-}
-
-// fn main() -> Result<(),Error> {
-//     // Start HTTP servers.
-//     smol::block_on(async {
-//         let http = listen(Async::<TcpListener>::bind(([127, 0, 0, 1], 8000))?);
-
-//         http.await?;
-//         Ok(())
-//     })
-// }
+use smol::{io, prelude::*, Async};
 
 /// Spawns futures.
 #[derive(Clone)]
-struct SmolExecutor;
+pub struct SmolExecutor;
 
 impl<F: Future + Send + 'static> hyper::rt::Executor<F> for SmolExecutor {
     fn execute(&self, fut: F) {
@@ -65,12 +29,12 @@ impl<F: Future + Send + 'static> hyper::rt::Executor<F> for SmolExecutor {
 }
 
 /// Listens for incoming connections.
-struct SmolListener<'a> {
+pub struct SmolListener<'a> {
     incoming: Pin<Box<dyn Stream<Item = io::Result<Async<TcpStream>>> + Send + 'a>>,
 }
 
 impl<'a> SmolListener<'a> {
-    fn new(listener: &'a Async<TcpListener>) -> Self {
+    pub fn new(listener: &'a Async<TcpListener>) -> Self {
         Self {
             incoming: Box::pin(listener.incoming()),
         }
@@ -94,7 +58,7 @@ impl hyper::server::accept::Accept for SmolListener<'_> {
 }
 
 /// A TCP or TCP+TLS connection.
-enum SmolStream {
+pub enum SmolStream {
     /// A plain TCP connection.
     Plain(Async<TcpStream>),
 }
@@ -160,15 +124,4 @@ pub enum Error {
     IoError(#[from] io::Error),
     #[error("Client may have never connected")]
     HyperError(#[from] hyper::Error),
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    fn original_main() {
-        smol::block_on(async {
-            let http = listen(Async::<TcpListener>::bind(([127, 0, 0, 1], 8000)).unwrap());
-            http.await.unwrap();
-        });
-    }
 }

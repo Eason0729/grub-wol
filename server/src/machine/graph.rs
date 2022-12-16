@@ -56,6 +56,20 @@ where
         });
         contain
     }
+    pub fn bfs(&self, root: &Node) -> BFS<'_, V, E> {
+        BFS {
+            graph: self,
+            queue: VecDeque::new(),
+            root: Some(root.0),
+        }
+    }
+    pub fn dfs(&self, root: &Node) -> DFS<'_, V, E> {
+        DFS {
+            graph: self,
+            queue: Vec::new(),
+            root: Some(root.0),
+        }
+    }
     pub fn dijkstra(&mut self, from: &Node, dist: &Node) -> Option<Vec<&E>> {
         type NodeId = usize;
         type Distance = usize;
@@ -100,6 +114,76 @@ where
                 Some(trace)
             }
             None => None,
+        }
+    }
+}
+
+pub struct BFS<'a, V, E>
+where
+    V: Ord,
+{
+    graph: &'a Graph<V, E>,
+    queue: VecDeque<&'a Edge<E>>,
+    root: Option<usize>,
+}
+
+impl<'a, V, E> Iterator for BFS<'a, V, E>
+where
+    V: Ord,
+{
+    type Item = (Option<&'a E>, Node);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(node) = self.root {
+            self.root = None;
+            Some((None, Node(node)))
+        } else {
+            if !self.queue.is_empty() {
+                let current_edge = self.queue.pop_front().unwrap();
+
+                self.graph.edges[current_edge.to].iter().for_each(|edge| {
+                    self.queue.push_back(edge);
+                });
+
+                Some((Some(&current_edge.value), Node(current_edge.to)))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+pub struct DFS<'a, V, E>
+where
+    V: Ord,
+{
+    graph: &'a Graph<V, E>,
+    queue: Vec<&'a Edge<E>>,
+    root: Option<usize>,
+}
+
+impl<'a, V, E> Iterator for DFS<'a, V, E>
+where
+    V: Ord,
+{
+    type Item = (Option<&'a E>, Node);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(node) = self.root {
+            self.root = None;
+            Some((None, Node(node)))
+        } else {
+            if !self.queue.is_empty() {
+                let current_edge = self.queue.pop().unwrap();
+
+                self.graph.edges[current_edge.to].iter().for_each(|edge| {
+                    self.queue.push(edge);
+                });
+
+                Some((Some(&current_edge.value), Node(current_edge.to)))
+            } else {
+                None
+            }
         }
     }
 }

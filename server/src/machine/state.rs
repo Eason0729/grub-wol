@@ -1,74 +1,51 @@
-// use std::marker::PhantomData;
-// use std::{fs, io, net, path};
+use crate::{
+    machine::graph::Dijkstra,
+    packet::{self, Packet, Packets},
+};
 
-// use super::graph::Graph;
-// use super::machine;
+use super::graph::Graph;
 
-// use proto::prelude as protocal;
-// use proto::prelude::{Answer, GrubData, GrubDescription, Packet, Request};
-// use serde::{Deserialize, Serialize};
-// use std::collections::*;
+use proto::prelude as protocal;
+use serde::{Deserialize, Serialize};
+use std::collections::*;
 
-// type NodeId = usize;
-// type MacAddress = [u8; 6];
+#[derive(Clone, Ord, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum OS {
+    Down,
+    Up(OSInfo),
+}
 
-// #[derive(Ord, PartialOrd, Clone, PartialEq, Eq)]
-// enum Singal {
-//     AcceptReboot,
-//     GrubQueryFinished,
-//     IsAlive,
-//     IsSpecifiedOs,
-// }
+impl OS {
+    pub fn from_info(info: protocal::host::OsInfo, id: protocal::ID) -> Self {
+        let info = OSInfo {
+            display_name: info.display_name,
+            id,
+        };
+        OS::Up(info)
+    }
+}
 
-// #[derive(Serialize, Deserialize)]
-// pub struct OperatingSystem {
-//     uid: protocal::ID,
-//     grub_sec: usize,
-//     display_name: String,
-// }
+#[derive(Clone, Ord, Eq, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum BootMethod {
+    WOL,
+    Grub(protocal::Integer),
+    Down,
+}
 
-// #[derive(Debug)]
-// pub enum Error {}
+#[derive(Clone, Ord, Eq, Serialize, Deserialize)]
+pub struct OSInfo {
+    pub display_name: String,
+    pub id: protocal::ID,
+}
 
-// // a stateful inited machine
-// #[derive(Serialize, Deserialize)]
-// struct Machine {
-//     #[serde(skip)]
-//     state: Option<State>,
-// }
+impl PartialOrd for OSInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
 
-// impl Machine {
-//     async fn new(conn: &mut protocal::TcpConn) -> Result<Self, Error> {
-//         // first time hanskshake
-//         if let protocal::Packet::Handshake(p) = conn.read().await.map_err(|e| todo!())? {};
-//         todo!()
-//     }
-// }
-
-// // a stateless machine state
-// struct State {
-//     alive_os: OperatingSystem,
-//     conn: protocal::TcpConn,
-//     session_id: usize,
-//     // ignitor: event::EventHook<Singal>,
-// }
-
-// impl State {
-//     fn new(conn: protocal::TcpConn) {}
-//     async fn ping(&mut self) -> Result<bool, protocal::Error> {
-//         // If host is down(or not connected to the server), conn is expected to get BrokenPipe
-//         match self.conn.send(Packet::Request(Request::Alive)).await {
-//             Ok(_) => Ok(true),
-//             Err(err) => {
-//                 if let protocal::Error::SmolIOError(_) = err {
-//                     Ok(false)
-//                 } else {
-//                     Err(err)
-//                 }
-//             }
-//         }
-//     }
-//     async fn check_os(&mut self) -> Result<protocal::ID, protocal::Error> {
-//         todo!()
-//     }
-// }
+impl PartialEq for OSInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}

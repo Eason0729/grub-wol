@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::{mem, time};
 
 use proto::prelude::packets as PacketType;
@@ -93,8 +94,12 @@ impl RawPacket {
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 pub enum ReceivePacketType {
     GrubQuery,
-    IsAlive,
+    Ping,
     Invaild,
+    Reboot,
+    InitId,
+    ShutDown,
+    OSQuery,
 }
 
 impl ReceivePacketType {
@@ -102,7 +107,11 @@ impl ReceivePacketType {
         match packet {
             host::Packet::HandShake(_) => ReceivePacketType::Invaild,
             host::Packet::GrubQuery(_) => ReceivePacketType::GrubQuery,
-            host::Packet::IsAlive(_) => ReceivePacketType::IsAlive,
+            host::Packet::Ping(_) => ReceivePacketType::Ping,
+            host::Packet::Reboot => ReceivePacketType::Reboot,
+            host::Packet::InitId => ReceivePacketType::InitId,
+            host::Packet::ShutDown => ReceivePacketType::ShutDown,
+            host::Packet::OSQuery(_) => ReceivePacketType::OSQuery,
         }
     }
 }
@@ -169,10 +178,11 @@ impl<'a> Packet<'a> {
         }
     }
     pub async fn shutdown(&mut self) -> Result<(), Error> {
-        // TODO: rpc check callback
-        self.send(server::Packet::ShutDown).await
+        self.send(server::Packet::ShutDown).await?;
+        self.read(ReceivePacketType::ShutDown).await?;
+        Ok(())
     }
-    pub async fn grub_query(&mut self) -> Result<Vec<host::GrubDescription>, Error> {
+    pub async fn grub_query(&mut self) -> Result<Vec<host::GrubInfo>, Error> {
         self.send(server::Packet::GrubQuery).await?;
         if let host::Packet::GrubQuery(query) = self.read(ReceivePacketType::GrubQuery).await? {
             Ok(query)
@@ -180,19 +190,33 @@ impl<'a> Packet<'a> {
             Err(Error::UnknownProtocal)
         }
     }
-    pub async fn boot_into(&mut self, grub_sec: protocal::ID) -> Result<(), Error> {
-        // TODO: rpc check callback
-        self.send(server::Packet::Reboot(grub_sec)).await
+    pub async fn boot_into(&mut self, grub_sec: protocal::Integer) -> Result<(), Error> {
+        self.send(server::Packet::Reboot(grub_sec)).await?;
+        self.read(ReceivePacketType::Reboot).await?;
+        Ok(())
     }
     pub async fn issue_id(&mut self, id: protocal::ID) -> Result<(), Error> {
         self.send(server::Packet::InitId(id)).await?;
         self.fake_handshake_uid(id)?;
         Ok(())
     }
-    pub async fn ping(&mut self) -> Result<protocal::ID, Error> {
-        self.send(server::Packet::IsAlive).await?;
-        if let host::Packet::IsAlive(id) = self.read(ReceivePacketType::IsAlive).await? {
-            Ok(id)
+    pub async fn ping(&mut self) -> Result<(), Error> {
+        self.send(server::Packet::Ping).await?;
+        if let host::Packet::Ping(id) = self.read(ReceivePacketType::Ping).await? {
+            if self.raw.as_ref().ok_or(Error::ClientOffline)?.uid != id {
+                self.raw = None;
+                Err(Error::ClientOffline)
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(Error::UnknownProtocal)
+        }
+    }
+    pub async fn os_query(&mut self) -> Result<host::OsInfo, Error> {
+        self.send(server::Packet::OSQuery).await?;
+        if let host::Packet::OSQuery(query) = self.read(ReceivePacketType::OSQuery).await? {
+            Ok(query)
         } else {
             Err(Error::UnknownProtocal)
         }

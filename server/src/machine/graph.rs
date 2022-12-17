@@ -23,10 +23,19 @@ where
             values: BTreeMap::default(),
         }
     }
+    pub fn update_node(&mut self, origin: &V, value: V) -> Option<V> {
+        let node = self.values.remove(origin);
+        if let Some(id) = node {
+            self.values.insert(value, id);
+            None
+        } else {
+            Some(value)
+        }
+    }
     pub fn list_node(&self) -> impl Iterator<Item = &V> {
         self.values.iter().map(|(node, _)| node)
     }
-    pub fn find_node(&mut self, value: &V) -> Option<Node> {
+    pub fn find_node(&self, value: &V) -> Option<Node> {
         let id = self.values.get(value)?.clone();
         Some({
             let id = id;
@@ -34,11 +43,14 @@ where
         })
     }
     pub fn add_node(&mut self, value: V) -> Node {
-        let value = value;
-        let id = self.values.len();
-        self.values.insert(value, id);
-        self.edges.push(vec![]);
-        {
+        if let Some(node) = self.find_node(&value) {
+            node
+        } else {
+            let value = value;
+            let id = self.values.len();
+            self.values.insert(value, id);
+            self.edges.push(vec![]);
+
             let id = id;
             Node(id)
         }
@@ -57,20 +69,20 @@ where
         contain
     }
     pub fn bfs(&self, root: &Node) -> BFS<'_, V, E> {
-        BFS {
-            graph: self,
-            queue: VecDeque::new(),
-            root: Some(root.0),
-        }
+        let mut queue = VecDeque::new();
+        self.edges[root.0].iter().for_each(|edge| {
+            queue.push_back(edge);
+        });
+        BFS { graph: self, queue }
     }
     pub fn dfs(&self, root: &Node) -> DFS<'_, V, E> {
-        DFS {
-            graph: self,
-            queue: Vec::new(),
-            root: Some(root.0),
-        }
+        let mut stack = VecDeque::new();
+        self.edges[root.0].iter().for_each(|edge| {
+            stack.push_back(edge);
+        });
+        DFS { graph: self, stack }
     }
-    pub fn dijkstra(&mut self, from: &Node, dist: &Node) -> Option<Vec<&E>> {
+    pub fn dijkstra<'a>(&'a self, from: &Node) -> Dijkstra<'a, E> {
         type NodeId = usize;
         type Distance = usize;
 
@@ -99,14 +111,34 @@ where
             })
         }
 
-        match distance[dist.0] {
+        Dijkstra {
+            distance,
+            last_node,
+            last_edge,
+        }
+    }
+}
+
+// TODO: impl binary multiply of LCA to speed up tracing on large graph
+pub struct Dijkstra<'a, E> {
+    distance: Vec<Option<usize>>,
+    last_node: Vec<usize>,
+    last_edge: Vec<Option<&'a E>>,
+}
+
+impl<'a, E> Dijkstra<'a, E> {
+    pub fn to(&self, dist: &Node) -> Option<usize> {
+        self.distance[dist.0]
+    }
+    pub fn trace(&self, dist: &Node) -> Option<Vec<&E>> {
+        match self.distance[dist.0] {
             Some(_) => {
                 let mut trace: Vec<&E> = vec![];
                 let mut last = dist.0;
 
-                while last != last_node[last] {
-                    trace.push(last_edge[last].unwrap());
-                    last = last_node[last];
+                while last != self.last_node[last] {
+                    trace.push(self.last_edge[last].unwrap());
+                    last = self.last_node[last];
                 }
 
                 trace.reverse();
@@ -124,31 +156,23 @@ where
 {
     graph: &'a Graph<V, E>,
     queue: VecDeque<&'a Edge<E>>,
-    root: Option<usize>,
 }
 
 impl<'a, V, E> Iterator for BFS<'a, V, E>
 where
     V: Ord,
 {
-    type Item = (Option<&'a E>, Node);
+    type Item = (&'a E, Node);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(node) = self.root {
-            self.root = None;
-            Some((None, Node(node)))
+        if !self.queue.is_empty() {
+            let current_edge = self.queue.pop_front().unwrap();
+            self.graph.edges[current_edge.to].iter().for_each(|edge| {
+                self.queue.push_back(edge);
+            });
+            Some((&current_edge.value, Node(current_edge.to)))
         } else {
-            if !self.queue.is_empty() {
-                let current_edge = self.queue.pop_front().unwrap();
-
-                self.graph.edges[current_edge.to].iter().for_each(|edge| {
-                    self.queue.push_back(edge);
-                });
-
-                Some((Some(&current_edge.value), Node(current_edge.to)))
-            } else {
-                None
-            }
+            None
         }
     }
 }
@@ -158,32 +182,24 @@ where
     V: Ord,
 {
     graph: &'a Graph<V, E>,
-    queue: Vec<&'a Edge<E>>,
-    root: Option<usize>,
+    stack: VecDeque<&'a Edge<E>>,
 }
 
 impl<'a, V, E> Iterator for DFS<'a, V, E>
 where
     V: Ord,
 {
-    type Item = (Option<&'a E>, Node);
+    type Item = (&'a E, Node);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(node) = self.root {
-            self.root = None;
-            Some((None, Node(node)))
+        if !self.stack.is_empty() {
+            let current_edge = self.stack.pop_back().unwrap();
+            self.graph.edges[current_edge.to].iter().for_each(|edge| {
+                self.stack.push_back(edge);
+            });
+            Some((&current_edge.value, Node(current_edge.to)))
         } else {
-            if !self.queue.is_empty() {
-                let current_edge = self.queue.pop().unwrap();
-
-                self.graph.edges[current_edge.to].iter().for_each(|edge| {
-                    self.queue.push(edge);
-                });
-
-                Some((Some(&current_edge.value), Node(current_edge.to)))
-            } else {
-                None
-            }
+            None
         }
     }
 }
@@ -233,6 +249,6 @@ mod test {
         g.connect(c, a, "edge c to a");
         g.connect(c, c, "edge c to c");
 
-        assert_eq!(g.dijkstra(&c, &a), Some(vec![&"edge c to a"]));
+        assert_eq!(g.dijkstra(&c).trace(&a), Some(vec![&"edge c to a"]));
     }
 }

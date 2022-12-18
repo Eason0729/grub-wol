@@ -1,6 +1,6 @@
-use std::borrow::Borrow;
 use std::{mem, time};
 
+use super::super::state::OSInfo;
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
 use smol::net;
@@ -128,6 +128,17 @@ impl<'a> Packet<'a> {
         let raw = ok_or_ref!(self.raw, Error::ClientOffline);
         Ok(raw.uid)
     }
+    pub fn get_mac(&mut self) -> Result<MacAddress, Error> {
+        let raw = ok_or_ref!(self.raw, Error::ClientOffline);
+        Ok(raw.mac_address)
+    }
+    pub async fn get_os(&mut self) -> Result<OSInfo, Error> {
+        let display_name = self.os_query().await?.display_name;
+        Ok(OSInfo {
+            display_name,
+            id: self.get_handshake_uid()?,
+        })
+    }
     fn fake_handshake_uid(&mut self, id: protocal::ID) -> Result<(), Error> {
         let raw = ok_or_ref!(self.raw, Error::ClientOffline);
         raw.uid = id;
@@ -213,7 +224,7 @@ impl<'a> Packet<'a> {
             Err(Error::UnknownProtocal)
         }
     }
-    pub async fn os_query(&mut self) -> Result<host::OsInfo, Error> {
+    pub async fn os_query(&mut self) -> Result<host::OSInfo, Error> {
         self.send(server::Packet::OSQuery).await?;
         if let host::Packet::OSQuery(query) = self.read(ReceivePacketType::OSQuery).await? {
             Ok(query)

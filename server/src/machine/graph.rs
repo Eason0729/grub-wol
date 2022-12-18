@@ -117,6 +117,20 @@ where
             last_edge,
         }
     }
+    pub fn transform_node<F, T>(mut self, mut f: F) -> Graph<T, E>
+    where
+        F: FnMut(V) -> T,
+        T: Ord,
+    {
+        let mut values = BTreeMap::default();
+        self.values.into_iter().for_each(|(k, v)| {
+            values.insert(f(k), v);
+        });
+        Graph {
+            edges: self.edges,
+            values,
+        }
+    }
 }
 
 // TODO: impl binary multiply of LCA to speed up tracing on large graph

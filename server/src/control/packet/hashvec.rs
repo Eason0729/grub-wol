@@ -1,5 +1,4 @@
 use indexmap::IndexMap;
-use std::collections::BTreeMap;
 use std::hash::Hash;
 
 pub struct HashVec<K, V>

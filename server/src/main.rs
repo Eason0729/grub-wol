@@ -15,5 +15,3 @@ fn main() {
 
     block_on(control_server.listen(control_socket));
 }
-
-// TODO: change BTreeMap to IndexMap

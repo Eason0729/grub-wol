@@ -1,7 +1,6 @@
 // TODO: fix bug-> if event didn't yield(timeout), signals(on the Registry) would have possible memory leak
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::task::{self, Poll};
@@ -10,7 +9,7 @@ use std::{collections::*, future::Future};
 
 use smol::future::or;
 
-use super::btree::*;
+use super::hashvec::*;
 
 struct Registry<S, P>
 where

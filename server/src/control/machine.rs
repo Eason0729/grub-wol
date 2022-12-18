@@ -2,6 +2,7 @@ use super::packet::{self, Packet, Packets};
 
 use super::bootgraph::{self, *};
 
+use indexmap::IndexMap;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
 use smol::net::{TcpListener, TcpStream};
@@ -66,7 +67,7 @@ where
 
 #[derive(Serialize, Deserialize)]
 pub struct Server<'a> {
-    machines: BTreeMap<MacAddress, Machine<'a>>,
+    machines: IndexMap<MacAddress, Machine<'a>>,
     #[serde(skip)]
     packets: Packets,
     // #[serde(skip)]

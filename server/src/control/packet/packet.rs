@@ -5,7 +5,7 @@ use proto::prelude::{self as protocal, host, server};
 use smol::future::{or, Or};
 use smol::{net, Timer};
 
-use super::btree::HashVec;
+use super::hashvec::HashVec;
 use super::event::EventHook;
 use super::wol;
 

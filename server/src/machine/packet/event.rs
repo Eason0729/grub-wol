@@ -1,3 +1,5 @@
+// TODO: fix bug-> if event didn't yield(timeout), signals(on the Registry) would have possible memory leak
+
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::pin::Pin;
@@ -165,12 +167,14 @@ where
         let mut registry = self.registry.borrow_mut();
 
         if let Some(id) = registry.signals.pop(s) {
-            registry.payloads.insert(id, payload);
-            registry.wakers.remove(&id).unwrap().wake();
-            None
-        } else {
-            Some(payload)
+            if let Some(waker) = registry.wakers.get(&id) {
+                let waker = waker.clone();
+                registry.payloads.insert(id, payload);
+                waker.wake();
+                return None;
+            }
         }
+        Some(payload)
     }
     fn register(&self, signal: S) -> SignalPoll<S, P> {
         let mut registry = self.registry.borrow_mut();
@@ -194,6 +198,16 @@ where
     ignitor: &'a EventHook<S, P>,
     id: usize,
     inited: Cell<bool>,
+}
+
+impl<'a, S, P> Drop for SignalPoll<'a, S, P>
+where
+    S: Ord,
+{
+    fn drop(&mut self) {
+        let mut registry = self.ignitor.registry.borrow_mut();
+        registry.wakers.remove(&self.id);
+    }
 }
 
 impl<'a, S, P> Future for SignalPoll<'a, S, P>
@@ -277,5 +291,36 @@ mod test {
         }
 
         assert_eq!(output.load(Ordering::Relaxed), 100);
+    }
+
+    #[test]
+    fn timeout_remove() {
+        let event_q = EventHook::<_, ()>::default();
+        let ex = smol::LocalExecutor::new();
+
+        ex.spawn(async {
+            smol::Timer::after(Duration::from_millis(40)).await;
+            // this should not get its payload back
+            assert!(event_q.signal(&0, ()).is_none());
+            smol::Timer::after(Duration::from_millis(40)).await;
+            // this should get its payload back
+            assert!(event_q.signal(&0, ()).is_some());
+        })
+        .detach();
+        // this should timeout
+        ex.spawn(async {
+            assert!(event_q.timeout(0, Duration::from_millis(20)).await.is_err());
+        })
+        .detach();
+        // this should work
+        ex.spawn(async { assert!(event_q.timeout(0, Duration::from_millis(60)).await.is_ok()) })
+            .detach();
+
+        loop {
+            ex.try_tick();
+            if ex.is_empty() {
+                break;
+            }
+        }
     }
 }

@@ -39,6 +39,23 @@ where
         }
         None
     }
+    pub fn remove_with_value(&mut self, key: &K, value: &V) -> Option<V>
+    where
+        V: Ord,
+    {
+        if let Some(content) = self.tree.get_mut(key) {
+            if let Some((i, _)) = content.iter().enumerate().find(|(_, val)| *val == value) {
+                let result = content.swap_remove(i);
+                if content.is_empty() {
+                    self.tree.remove(key);
+                }
+                Some(result)
+            } else {
+                None
+            };
+        }
+        None
+    }
     pub fn is_empty(&self, key: &K) -> bool {
         if let Some(x) = self.tree.get(key) {
             x.is_empty()

@@ -41,7 +41,7 @@ impl IntoLow for HighOS {
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Deserialize, Serialize)]
-enum OSState<T> {
+pub enum OSState<T> {
     Down,
     Up(T),
 }
@@ -283,7 +283,7 @@ pub struct BootGraph {
 }
 
 impl BootGraph {
-    fn current_os(&self, packet: &mut Packet<'_>) -> Result<OSState<&OS>, Error> {
+    pub fn current_os(&self, packet: &mut Packet<'_>) -> Result<OSState<&OS>, Error> {
         match packet.get_handshake_uid() {
             Ok(x) => {
                 let os = self.os.get(&LowOS { id: x });
@@ -301,10 +301,10 @@ impl BootGraph {
             }
         }
     }
-    fn list_os(&self) -> impl Iterator<Item = &OS> {
+    pub fn list_os(&self) -> impl Iterator<Item = &OS> {
         self.os.iter().map(|(k, v)| v)
     }
-    async fn boot_into(&self, os: &OS, packet: &mut Packet<'_>) -> Result<(), Error> {
+    pub async fn boot_into(&self, os: &OS, packet: &mut Packet<'_>) -> Result<(), Error> {
         let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 

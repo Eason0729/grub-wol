@@ -1,4 +1,3 @@
-use super::graph::Graph;
 use super::packet::{self, Packet, Packets};
 
 use super::bootgraph::*;
@@ -42,11 +41,23 @@ impl Machines {
 
 #[derive(Serialize, Deserialize)]
 struct Machine {
-    boot_graph: Graph<OS, BootMethod>,
-    // TODO: remove display name requirement
+    boot_graph: BootGraph,
 }
 
-impl Machine {}
+impl Machine {
+    async fn new<'a>(packet: Packet<'a>) -> Result<(Machine, Packet<'_>), Error> {
+        let id_counter = 1;
+        let mut boot_graph = IntBootGraph::new(packet, id_counter).await?;
+
+        boot_graph.tick().await?;
+
+        let (boot_graph, packet, _) = boot_graph.into_inner();
+
+        let machine = Machine { boot_graph };
+
+        Ok((machine, packet))
+    }
+}
 
 struct MachineInstance<'a> {
     packet: Packet<'a>,

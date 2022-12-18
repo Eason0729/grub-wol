@@ -1,6 +1,6 @@
 pub mod http;
 pub mod machine;
-pub mod wol;
+pub mod ulog;
 
 fn main() {
     println!("Hello, world!");

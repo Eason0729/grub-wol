@@ -7,6 +7,7 @@ use smol::{net, Timer};
 
 use super::btree::BTreeVec;
 use super::event::EventHook;
+use super::wol;
 
 type MacAddress = [u8; 6];
 
@@ -137,6 +138,15 @@ impl<'a> Packet<'a> {
         let raw = ok_or_ref!(self.raw, Error::ClientOffline);
         raw.uid = id;
         Ok(())
+    }
+    pub async fn wol_reconnect(&mut self,mac_address:&[u8;6]) -> Result<(), Error>{
+        or(self.wait_reconnect(),async{
+            let magic_packet=wol::MagicPacket::new(mac_address);
+            loop{
+                Timer::after(time::Duration::from_secs(1)).await;
+                magic_packet.send();                
+            }
+        }).await
     }
     pub async fn wait_reconnect(&mut self) -> Result<(), Error> {
         let mut raw = None;

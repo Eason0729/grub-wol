@@ -1,7 +1,7 @@
 // TODO: fix error handling
-use super::super::packet::{self, Packet, Packets};
+use super::super::packet::{self, Packet};
 
-use super::graph::{Graph, Node};
+use super::graph::Graph;
 
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
@@ -80,17 +80,17 @@ pub enum BootMethod {
 }
 
 impl BootMethod {
-    pub async fn execute(&self, packet: &mut Packet<'_>) -> Result<(), packet::Error> {
+    pub async fn execute(&self, packet: &mut Packet<'_>,mac_address:&[u8;6]) -> Result<(), packet::Error> {
         match self {
-            BootMethod::WOL => todo!(),
+            BootMethod::WOL =>  packet.wol_reconnect(mac_address).await?,
             BootMethod::Grub(x) => {
                 packet.boot_into(*x).await?;
-                packet.wait_reconnect().await?;
+                packet.wait_reconnect().await? ;
             }
             BootMethod::Shutdown => {
                 packet.shutdown().await?;
             }
-        }
+        };
         Ok(())
     }
 }
@@ -101,19 +101,22 @@ pub struct IntBootGraph<'a> {
     unknown_os: Vec<HighOS>,
     ioss: Vec<HighOS>,
     id_counter: protocal::ID,
+    mac_address:[u8;6]
 }
 
 impl<'a> IntBootGraph<'a> {
     pub async fn new(
-        packet: Packet<'a>,
+        mut packet: Packet<'a>,
         id_counter: protocal::ID,
     ) -> Result<IntBootGraph<'a>, Error> {
+        let mac_address=packet.get_mac()?;
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
             packet,
             unknown_os: vec![],
             id_counter,
             ioss: vec![],
+            mac_address
         };
 
         // reboot to ensure correct first-boot os
@@ -206,7 +209,7 @@ impl<'a> IntBootGraph<'a> {
 
         Ok((os, trace))
     }
-    pub fn into_inner(mut self) -> (BootGraph, Packet<'a>, protocal::ID) {
+    pub fn into_inner(self) -> (BootGraph, Packet<'a>, protocal::ID) {
         let mut map = BTreeMap::new();
 
         for ios in self.ioss {
@@ -241,7 +244,7 @@ impl<'a> IntBootGraph<'a> {
             let (mut ios, trace) = self.get_closest_trace()?;
 
             for method in &trace {
-                method.execute(&mut self.packet).await?;
+                method.execute(&mut self.packet,&self.mac_address).await?;
             }
 
             let from = ios.into_low();
@@ -249,7 +252,7 @@ impl<'a> IntBootGraph<'a> {
             let grub_sec = ios.unknown_edge.pop().unwrap();
             let method = BootMethod::Grub(grub_sec);
 
-            method.execute(&mut self.packet).await?;
+            method.execute(&mut self.packet,&self.mac_address).await?;
 
             let dist = match self.issue_id().await? {
                 Some(ios) => {
@@ -302,9 +305,9 @@ impl BootGraph {
         }
     }
     pub fn list_os(&self) -> impl Iterator<Item = &OS> {
-        self.os.iter().map(|(k, v)| v)
+        self.os.iter().map(|(_, v)| v)
     }
-    pub async fn boot_into(&self, os: &OS, packet: &mut Packet<'_>) -> Result<(), Error> {
+    pub async fn boot_into(&self, os: &OS, packet: &mut Packet<'_>,mac_address:[u8;6]) -> Result<(), Error> {
         let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
@@ -317,7 +320,7 @@ impl BootGraph {
             .trace(&to)
             .ok_or(Error::BadGraph)?
         {
-            method.execute(packet).await?;
+            method.execute(packet,&mac_address).await?;
         }
 
         Ok(())

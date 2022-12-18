@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net;
+use std::marker::PhantomData;
 use std::vec;
-use std::{error, marker::PhantomData};
 use thiserror;
 
 type PrefixType = crate::constant::PacketPrefix;
+const MAXSIZE: PrefixType = 1048576;
 
 lazy_static! {
     static ref PREFIX_SIZE: usize = bincode::serialize(&(0 as PrefixType)).unwrap().len();
@@ -17,6 +18,8 @@ pub enum Error {
     BincodeError(#[from] bincode::Error),
     #[error("Error from smol")]
     SmolIOError(#[from] smol::io::Error),
+    #[error("too large entity")]
+    TooLargeEntity,
 }
 
 pub struct Connection<UP, DP, U, D>
@@ -54,6 +57,10 @@ where
         self.downstream.read_exact(&mut prefix_buffer).await?;
 
         let size: PrefixType = bincode::deserialize(&prefix_buffer)?;
+
+        if size > MAXSIZE {
+            return Err(Error::TooLargeEntity);
+        }
 
         let mut packet_buffer = vec![0_u8; size as usize];
 

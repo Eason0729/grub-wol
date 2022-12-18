@@ -1,3 +1,4 @@
+// TODO: fix error handling
 use super::super::packet::{self, Packet, Packets};
 
 use super::graph::{Graph, Node};
@@ -106,7 +107,7 @@ impl<'a> IntBootGraph<'a> {
     pub async fn new(
         packet: Packet<'a>,
         id_counter: protocal::ID,
-    ) -> Result<IntBootGraph<'a>, packet::Error> {
+    ) -> Result<IntBootGraph<'a>, Error> {
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
             packet,
@@ -138,7 +139,7 @@ impl<'a> IntBootGraph<'a> {
     /// try to issue id
     ///
     /// If issue id successfully, query osinfo additionally(and return IntermediateOS)
-    async fn issue_id(&mut self) -> Result<Option<HighOS>, packet::Error> {
+    async fn issue_id(&mut self) -> Result<Option<HighOS>, Error> {
         if self.packet.get_handshake_uid()? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
@@ -166,7 +167,7 @@ impl<'a> IntBootGraph<'a> {
         }
     }
     /// Returns the trace(a series of BootMethod) to closest os with unknown edge
-    fn get_closest_trace(&mut self) -> Result<(HighOS, Vec<BootMethod>), packet::Error> {
+    fn get_closest_trace(&mut self) -> Result<(HighOS, Vec<BootMethod>), Error> {
         let current_os = LowOS {
             id: self.packet.get_handshake_uid()?,
         };
@@ -234,7 +235,8 @@ impl<'a> IntBootGraph<'a> {
     fn is_finish(&self) -> bool {
         self.unknown_os.is_empty()
     }
-    pub async fn tick(&mut self) -> Result<(), packet::Error> {
+    pub async fn tick(&mut self) -> Result<(), Error> {
+        let shutdown_node = self.graph.find_node(&OSState::Down).unwrap();
         while !self.is_finish() {
             let (mut ios, trace) = self.get_closest_trace()?;
 
@@ -243,19 +245,24 @@ impl<'a> IntBootGraph<'a> {
             }
 
             let from = ios.into_low();
+            let from = self.graph.find_node(&OSState::Up(from)).unwrap();
             let grub_sec = ios.unknown_edge.pop().unwrap();
             let method = BootMethod::Grub(grub_sec);
 
             method.execute(&mut self.packet).await?;
 
             let dist = match self.issue_id().await? {
-                Some(ios) => ios.into_low(),
+                Some(ios) => {
+                    let dist_os = ios.into_low();
+                    let dist = self.graph.find_node(&OSState::Up(dist_os.clone())).unwrap();
+                    self.graph.connect(shutdown_node, dist, BootMethod::WOL);
+                    dist_os
+                }
                 None => LowOS {
                     id: self.packet.get_handshake_uid()?,
                 },
             };
 
-            let from = self.graph.find_node(&OSState::Up(from)).unwrap();
             let dist = self.graph.find_node(&OSState::Up(dist)).unwrap();
 
             self.graph.connect(from, dist, method);

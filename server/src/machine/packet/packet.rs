@@ -2,7 +2,8 @@ use std::{mem, time};
 
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
-use smol::net;
+use smol::future::{or, Or};
+use smol::{net, Timer};
 
 use super::btree::BTreeVec;
 use super::event::EventHook;
@@ -12,6 +13,7 @@ type MacAddress = [u8; 6];
 type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;
 
 const TIMEOUT: u64 = 180;
+const TIMEOUTSHORT: u64 = 5;
 
 macro_rules! ok_or_ref {
     ($i:expr,$e:expr) => {
@@ -159,8 +161,26 @@ impl<'a> Packet<'a> {
             .map_err(|_| Error::ClientDisconnect)?;
         Ok(())
     }
+    async fn read_timeout(
+        &mut self,
+        packet_type: ReceivePacketType,
+    ) -> Result<host::Packet, Error> {
+        let mut package = None;
+        or(
+            async {
+                package = Some(self.read(packet_type).await);
+            },
+            async {
+                Timer::after(time::Duration::from_secs(TIMEOUTSHORT));
+            },
+        )
+        .await;
+        match package {
+            Some(x) => Ok(x?),
+            None => Err(Error::Timeout),
+        }
+    }
     async fn read(&mut self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
-        // TODO: add timeout
         if let Some(packet) = self.unused_receive.pop(&packet_type) {
             Ok(packet)
         } else {
@@ -182,12 +202,15 @@ impl<'a> Packet<'a> {
     }
     pub async fn shutdown(&mut self) -> Result<(), Error> {
         self.send(server::Packet::ShutDown).await?;
-        self.read(ReceivePacketType::ShutDown).await?;
+        self.read_timeout(ReceivePacketType::ShutDown).await?;
         Ok(())
     }
     pub async fn grub_query(&mut self) -> Result<Vec<host::GrubInfo>, Error> {
+        // TODO: grub-probe is expect to keep running for longer time, add extra waiting time
         self.send(server::Packet::GrubQuery).await?;
-        if let host::Packet::GrubQuery(query) = self.read(ReceivePacketType::GrubQuery).await? {
+        if let host::Packet::GrubQuery(query) =
+            self.read_timeout(ReceivePacketType::GrubQuery).await?
+        {
             Ok(query)
         } else {
             Err(Error::UnknownProtocal)
@@ -195,17 +218,18 @@ impl<'a> Packet<'a> {
     }
     pub async fn boot_into(&mut self, grub_sec: protocal::Integer) -> Result<(), Error> {
         self.send(server::Packet::Reboot(grub_sec)).await?;
-        self.read(ReceivePacketType::Reboot).await?;
+        self.read_timeout(ReceivePacketType::Reboot).await?;
         Ok(())
     }
     pub async fn issue_id(&mut self, id: protocal::ID) -> Result<(), Error> {
         self.send(server::Packet::InitId(id)).await?;
+        self.read_timeout(ReceivePacketType::InitId).await?;
         self.fake_handshake_uid(id)?;
         Ok(())
     }
     pub async fn ping(&mut self) -> Result<(), Error> {
         self.send(server::Packet::Ping).await?;
-        if let host::Packet::Ping(id) = self.read(ReceivePacketType::Ping).await? {
+        if let host::Packet::Ping(id) = self.read_timeout(ReceivePacketType::Ping).await? {
             if self.raw.as_ref().ok_or(Error::ClientOffline)?.uid != id {
                 self.raw = None;
                 Err(Error::ClientOffline)
@@ -218,7 +242,7 @@ impl<'a> Packet<'a> {
     }
     pub async fn os_query(&mut self) -> Result<host::OSInfo, Error> {
         self.send(server::Packet::OSQuery).await?;
-        if let host::Packet::OSQuery(query) = self.read(ReceivePacketType::OSQuery).await? {
+        if let host::Packet::OSQuery(query) = self.read_timeout(ReceivePacketType::OSQuery).await? {
             Ok(query)
         } else {
             Err(Error::UnknownProtocal)

@@ -1,12 +1,11 @@
 use super::packet::{self, Packet, Packets};
 
-use super::bootgraph::*;
+use super::bootgraph::{*, self};
 
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
 use std::collections::*;
 
-type NodeId = usize;
 type MacAddress = [u8; 6];
 
 // #[derive(Serialize, Deserialize)]
@@ -94,4 +93,18 @@ impl<'a> MachineInstance<'a> {
 enum Error {
     #[error("Packet Error")]
     PacketError(#[from] packet::Error),
+    #[error("BootGraph Error")]
+    BootGraphError(bootgraph::Error),
+    #[error("Undefined Client Behavior")]
+    UndefinedClientBehavior
+}
+
+impl From<bootgraph::Error> for Error{
+    fn from(e: bootgraph::Error) -> Self {
+        match e{
+            bootgraph::Error::UndefinedClientBehavior => Self::UndefinedClientBehavior,
+            bootgraph::Error::BadGraph => Self::BootGraphError(e),
+            bootgraph::Error::PacketError(e) => Self::PacketError(e),
+        }
+    }
 }

@@ -5,7 +5,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use smol::Async;
 
-use crate::http::compat::{SmolExecutor, SmolListener};
+use super::compat::{SmolExecutor, SmolListener};
 
 /// Serves a request and returns a response.
 async fn serve(req: Request<Body>) -> Result<Response<Body>, Error> {
@@ -28,9 +28,9 @@ async fn listen(listener: Async<TcpListener>) -> Result<(), Error> {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Client may have never connected")]
+    #[error("io error")]
     IoError(#[from] io::Error),
-    #[error("Client may have never connected")]
+    #[error("hyper error")]
     HyperError(#[from] hyper::Error),
 }
 

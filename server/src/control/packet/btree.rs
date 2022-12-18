@@ -1,15 +1,17 @@
+use indexmap::IndexMap;
 use std::collections::BTreeMap;
+use std::hash::Hash;
 
-pub struct BTreeVec<K, V>
+pub struct HashVec<K, V>
 where
-    K: Ord,
+    K: Hash + Eq,
 {
-    tree: BTreeMap<K, Vec<V>>,
+    tree: IndexMap<K, Vec<V>>,
 }
 
-impl<K, V> Default for BTreeVec<K, V>
+impl<K, V> Default for HashVec<K, V>
 where
-    K: Ord,
+    K: Hash + Eq,
 {
     fn default() -> Self {
         Self {
@@ -18,9 +20,9 @@ where
     }
 }
 
-impl<K, V> BTreeVec<K, V>
+impl<K, V> HashVec<K, V>
 where
-    K: Ord,
+    K: Hash + Eq,
 {
     pub fn push(&mut self, key: K, val: V) {
         if let Some(content) = self.tree.get_mut(&key) {
@@ -41,7 +43,7 @@ where
     }
     pub fn remove_with_value(&mut self, key: &K, value: &V) -> Option<V>
     where
-        V: Ord,
+        V: Hash + Eq,
     {
         if let Some(content) = self.tree.get_mut(key) {
             if let Some((i, _)) = content.iter().enumerate().find(|(_, val)| *val == value) {

@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::pin::Pin;
 use std::task::{self, Poll};
 use std::time;
@@ -13,17 +14,17 @@ use super::btree::*;
 
 struct Registry<S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     id_counter: usize,
     wakers: HashMap<usize, task::Waker>,
-    signals: BTreeVec<S, usize>,
+    signals: HashVec<S, usize>,
     payloads: HashMap<usize, P>,
 }
 
 impl<S, P> Default for Registry<S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     fn default() -> Self {
         Self {
@@ -37,14 +38,14 @@ where
 
 pub struct EventHook<S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     registry: RefCell<Registry<S, P>>,
 }
 
 impl<S, P> Default for EventHook<S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     fn default() -> Self {
         Self::new()
@@ -53,7 +54,7 @@ where
 
 impl<S, P> EventHook<S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     pub fn new() -> Self {
         Self {
@@ -193,7 +194,7 @@ where
 
 pub struct SignalPoll<'a, S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     ignitor: &'a EventHook<S, P>,
     id: usize,
@@ -202,7 +203,7 @@ where
 
 impl<'a, S, P> Drop for SignalPoll<'a, S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     fn drop(&mut self) {
         let mut registry = self.ignitor.registry.borrow_mut();
@@ -212,7 +213,7 @@ where
 
 impl<'a, S, P> Future for SignalPoll<'a, S, P>
 where
-    S: Ord,
+    S: Hash + Eq,
 {
     type Output = usize;
 

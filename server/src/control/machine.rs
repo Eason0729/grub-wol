@@ -4,11 +4,11 @@ use super::bootgraph::{self, *};
 
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
-use smol::net::{TcpStream, TcpListener};
-use std::cell::{RefCell, Cell};
-use std::{collections::*, io};
+use smol::net::{TcpListener, TcpStream};
+use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::{collections::*, io};
 
 type MacAddress = [u8; 6];
 
@@ -46,10 +46,10 @@ where
     where
         F: Fn(&mut T) -> bool,
     {
-        let mut ans=None;
-        for i in 0..self.buffer.len(){
-            if f(&mut self.buffer[i]){
-                ans=Some(i); 
+        let mut ans = None;
+        for i in 0..self.buffer.len() {
+            if f(&mut self.buffer[i]) {
+                ans = Some(i);
                 break;
             }
         }
@@ -76,19 +76,28 @@ pub struct Server<'a> {
 }
 
 impl<'a> Server<'a> {
-    pub fn new()->Self{
-        Self{ machines: Default::default(), packets: Default::default(), unknown_packet: Default::default() }
+    pub fn new() -> Self {
+        Self {
+            machines: Default::default(),
+            packets: Default::default(),
+            unknown_packet: Default::default(),
+        }
     }
-    pub fn try_from_file()->Self{
+    pub fn try_from_file() -> Self {
         todo!()
     }
-    pub async fn listen(&'a self,socket:SocketAddr)->Result<(),Error> {
+    pub async fn listen(&'a self, socket: SocketAddr) -> Result<(), Error> {
         // TODO: graceful shutdown
-        let listener=TcpListener::bind(socket).await?;
-        loop{
-            let (stream,addr)=listener.accept().await?;
+        let listener = TcpListener::bind(socket).await?;
+        loop {
+            let (stream, addr) = listener.accept().await?;
             // TODO: error handling
-            self.connect_tcp(stream).await?;
+            match self.connect_tcp(stream).await {
+                Ok(_) => {}
+                Err(err) => {
+                    println!("{:?}", err);
+                }
+            };
         }
         Ok(())
     }
@@ -101,7 +110,7 @@ impl<'a> Server<'a> {
         };
         self.connect_packet(packet).await
     }
-    async fn connect_packet(&'a self,mut packet:Packet<'a>)-> Result<(), Error> {
+    async fn connect_packet(&'a self, mut packet: Packet<'a>) -> Result<(), Error> {
         let mac_address = packet.get_mac()?;
         if let Some(machine) = self.machines.get(&mac_address) {
             machine.connect(packet).await;
@@ -125,20 +134,24 @@ impl<'a> Server<'a> {
         }
         result
     }
-    pub async fn new_machine(&'a mut self,mac:MacAddress,display_name:String)->Result<bool,Error>{
+    pub async fn new_machine(
+        &'a mut self,
+        mac: MacAddress,
+        display_name: String,
+    ) -> Result<bool, Error> {
         let mut unknown_packet = self.unknown_packet.borrow_mut();
 
-        let packet=unknown_packet.pop(|item|match item.get_mac(){
-            Ok(x) => x==mac,
+        let packet = unknown_packet.pop(|item| match item.get_mac() {
+            Ok(x) => x == mac,
             Err(_) => false,
         });
 
-        if let Some(packet)=packet{
-            let (machine,packet)=Machine::new(packet, display_name).await?;
+        if let Some(packet) = packet {
+            let (machine, packet) = Machine::new(packet, display_name).await?;
             self.machines.insert(mac, machine);
             self.connect_packet(packet).await?;
             Ok(true)
-        }else{
+        } else {
             Ok(false)
         }
     }
@@ -187,14 +200,14 @@ impl<'a> Machine<'a> {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Packet Error")]
+    #[error("Io Error")]
     PacketError(#[from] packet::Error),
-    #[error("BootGraph Error")]
+    #[error("Bugs occurs in either graph logic or Host")]
     BootGraphError(bootgraph::Error),
-    #[error("Undefined Client Behavior")]
+    #[error("Host didn't follow protocal")]
     UndefinedClientBehavior,
     #[error("Server Failure")]
-    IoError(#[from] io::Error)
+    IoError(#[from] io::Error),
 }
 
 impl From<bootgraph::Error> for Error {

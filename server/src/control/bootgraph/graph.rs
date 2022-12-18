@@ -1,26 +1,24 @@
+use indexmap::IndexMap;
 use serde;
-use std::{
-    collections::{BTreeMap, VecDeque},
-    fmt::Debug,
-};
+use std::{collections::VecDeque, fmt::Debug, hash::Hash};
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct Graph<V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     edges: Vec<Vec<Edge<E>>>,
-    values: BTreeMap<V, usize>,
+    values: IndexMap<V, usize>,
 }
 
 impl<V, E> Graph<V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     pub fn new() -> Self {
         Self {
             edges: vec![],
-            values: BTreeMap::default(),
+            values: Default::default(),
         }
     }
     pub fn update_node(&mut self, origin: &V, value: V) -> Option<V> {
@@ -120,9 +118,9 @@ where
     pub fn transform_node<F, T>(mut self, mut f: F) -> Graph<T, E>
     where
         F: FnMut(V) -> T,
-        T: Ord,
+        T: Hash + Eq,
     {
-        let mut values = BTreeMap::default();
+        let mut values = IndexMap::default();
         self.values.into_iter().for_each(|(k, v)| {
             values.insert(f(k), v);
         });
@@ -166,7 +164,7 @@ impl<'a, E> Dijkstra<'a, E> {
 
 pub struct BFS<'a, V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     graph: &'a Graph<V, E>,
     queue: VecDeque<&'a Edge<E>>,
@@ -174,7 +172,7 @@ where
 
 impl<'a, V, E> Iterator for BFS<'a, V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     type Item = (&'a E, Node);
 
@@ -193,7 +191,7 @@ where
 
 pub struct DFS<'a, V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     graph: &'a Graph<V, E>,
     stack: VecDeque<&'a Edge<E>>,
@@ -201,7 +199,7 @@ where
 
 impl<'a, V, E> Iterator for DFS<'a, V, E>
 where
-    V: Ord,
+    V: Hash + Eq,
 {
     type Item = (&'a E, Node);
 

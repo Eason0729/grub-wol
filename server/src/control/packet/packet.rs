@@ -5,7 +5,7 @@ use proto::prelude::{self as protocal, host, server};
 use smol::future::{or, Or};
 use smol::{net, Timer};
 
-use super::btree::BTreeVec;
+use super::btree::HashVec;
 use super::event::EventHook;
 use super::wol;
 
@@ -43,7 +43,7 @@ impl Packets {
             .signal(&raw_packet.mac_address.clone(), raw_packet)
         {
             Some(raw_packet) => Ok(Some(Packet {
-                unused_receive: BTreeVec::default(),
+                unused_receive: HashVec::default(),
                 manager: self,
                 raw: Some(raw_packet),
             })),
@@ -71,6 +71,9 @@ impl RawPacket {
     }
 
     async fn from_handshake(mut conn: Conn, handshake: host::HandShake) -> Result<Self, Error> {
+        if handshake.ident != protocal::PROTO_IDENT {
+            return Err(Error::UnknownProtocal);
+        }
         if handshake.version != protocal::APIVERSION {
             return Err(Error::IncompatibleVersion);
         }
@@ -78,6 +81,7 @@ impl RawPacket {
         let uid = handshake.uid;
 
         let server_handshake = server::HandShake {
+            ident: protocal::PROTO_IDENT,
             version: protocal::APIVERSION,
         };
 
@@ -93,7 +97,7 @@ impl RawPacket {
     }
 }
 
-#[derive(PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Hash, Eq, PartialEq)]
 pub enum ReceivePacketType {
     GrubQuery,
     Ping,
@@ -121,7 +125,7 @@ impl ReceivePacketType {
 /// managed packet
 pub struct Packet<'a> {
     manager: &'a Packets,
-    unused_receive: BTreeVec<ReceivePacketType, host::Packet>,
+    unused_receive: HashVec<ReceivePacketType, host::Packet>,
     raw: Option<RawPacket>,
 }
 
@@ -139,14 +143,15 @@ impl<'a> Packet<'a> {
         raw.uid = id;
         Ok(())
     }
-    pub async fn wol_reconnect(&mut self,mac_address:&[u8;6]) -> Result<(), Error>{
-        or(self.wait_reconnect(),async{
-            let magic_packet=wol::MagicPacket::new(mac_address);
-            loop{
+    pub async fn wol_reconnect(&mut self, mac_address: &[u8; 6]) -> Result<(), Error> {
+        or(self.wait_reconnect(), async {
+            let magic_packet = wol::MagicPacket::new(mac_address);
+            loop {
                 Timer::after(time::Duration::from_secs(1)).await;
-                magic_packet.send();                
+                magic_packet.send();
             }
-        }).await
+        })
+        .await
     }
     pub async fn wait_reconnect(&mut self) -> Result<(), Error> {
         let mut raw = None;

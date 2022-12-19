@@ -166,7 +166,8 @@ where
     pub fn signal(&self, s: &S, payload: P) -> Option<P> {
         let mut registry = self.registry.borrow_mut();
 
-        if let Some(id) = registry.signals.pop(s) {
+        while registry.signals.contains_key(s) {
+            let id = registry.signals.pop(s).unwrap();
             if let Some(waker) = registry.wakers.get(&id) {
                 let waker = waker.clone();
                 registry.payloads.insert(id, payload);
@@ -174,6 +175,7 @@ where
                 return None;
             }
         }
+
         Some(payload)
     }
     fn register(&self, signal: S) -> SignalPoll<S, P> {

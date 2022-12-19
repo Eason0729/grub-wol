@@ -5,8 +5,8 @@ use proto::prelude::{self as protocal, host, server};
 use smol::future::{or, Or};
 use smol::{net, Timer};
 
-use super::hashvec::HashVec;
 use super::event::EventHook;
+use super::hashvec::HashVec;
 use super::wol;
 
 type MacAddress = [u8; 6];

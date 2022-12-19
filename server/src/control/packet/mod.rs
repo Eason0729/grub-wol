@@ -1,5 +1,5 @@
-pub(self) mod hashvec;
 mod event;
+pub(self) mod hashvec;
 pub(self) mod packet;
 mod wol;
 

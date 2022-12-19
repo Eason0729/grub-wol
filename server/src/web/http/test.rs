@@ -9,6 +9,7 @@ use super::compat::{SmolExecutor, SmolListener};
 
 /// Serves a request and returns a response.
 async fn serve(req: Request<Body>) -> Result<Response<Body>, Error> {
+    // req.uri().path()
     Ok(Response::new(Body::from("Hello from hyper!")))
 }
 

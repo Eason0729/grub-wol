@@ -63,6 +63,12 @@ pub enum SmolStream {
     Plain(Async<TcpStream>),
 }
 
+impl SmolStream {
+    pub fn from_plain(stream: Async<TcpStream>) -> Self {
+        Self::Plain(stream)
+    }
+}
+
 impl hyper::client::connect::Connection for SmolStream {
     fn connected(&self) -> hyper::client::connect::Connected {
         hyper::client::connect::Connected::new()

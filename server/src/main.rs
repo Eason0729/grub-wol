@@ -13,5 +13,5 @@ fn main() {
 
     let ex = smol::LocalExecutor::new();
 
-    block_on(control_server.listen(control_socket));
+    block_on(control_server.listen(control_socket)).unwrap();
 }

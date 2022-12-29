@@ -3,6 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::hash::Hash;
 use std::pin::Pin;
+use std::sync::Mutex;
 use std::task::{self, Poll};
 use std::time;
 use std::{collections::*, future::Future};
@@ -39,7 +40,7 @@ pub struct EventHook<S, P>
 where
     S: Hash + Eq,
 {
-    registry: RefCell<Registry<S, P>>,
+    registry: Mutex<Registry<S, P>>,
 }
 
 impl<S, P> Default for EventHook<S, P>
@@ -57,14 +58,14 @@ where
 {
     pub fn new() -> Self {
         Self {
-            registry: RefCell::default(),
+            registry: Mutex::default(),
         }
     }
     /// wait for the signal
     pub async fn wait(&self, signal: S) -> P {
         let id = self.register(signal).await;
 
-        let mut registry = self.registry.borrow_mut();
+        let mut registry = self.registry.lock().unwrap();
         registry.payloads.remove(&id).unwrap()
     }
     /// wait for the signal while keep invoking the function
@@ -83,7 +84,7 @@ where
         )
         .await;
 
-        let mut registry = self.registry.borrow_mut();
+        let mut registry = self.registry.lock().unwrap();
         registry.payloads.remove(&id).unwrap()
     }
 
@@ -110,7 +111,7 @@ where
         if id == 0 {
             Err(())
         } else {
-            let mut registry = self.registry.borrow_mut();
+            let mut registry = self.registry.lock().unwrap();
             let payload = registry.payloads.remove(&id).unwrap();
             Ok(payload)
         }
@@ -136,6 +137,7 @@ where
         F: Fn(),
     {
         let id = or(
+            self.register(signal),// marked here: #1
             or(
                 async {
                     loop {
@@ -148,14 +150,16 @@ where
                     0
                 },
             ),
-            self.register(signal),
         )
         .await;
+        // ``self.register(signal)`` drop here: #2
+        // and what if ``self.register(signal)`` yield between #1 and #2?
 
+        // TODO: fix fatal logical error
         if id == 0 {
             Err(())
         } else {
-            let mut registry = self.registry.borrow_mut();
+            let mut registry = self.registry.lock().unwrap();
             let payload = registry.payloads.remove(&id).unwrap();
             Ok(payload)
         }
@@ -164,7 +168,7 @@ where
     ///
     /// return None if the signal match a caller, Some(payload) otherwise
     pub fn signal(&self, s: &S, payload: P) -> Option<P> {
-        let mut registry = self.registry.borrow_mut();
+        let mut registry = self.registry.lock().unwrap();
 
         while registry.signals.contains_key(s) {
             let id = registry.signals.pop(s).unwrap();
@@ -179,7 +183,7 @@ where
         Some(payload)
     }
     fn register(&self, signal: S) -> SignalPoll<S, P> {
-        let mut registry = self.registry.borrow_mut();
+        let mut registry = self.registry.lock().unwrap();
         let id = registry.id_counter;
         registry.id_counter += 1;
 
@@ -207,7 +211,7 @@ where
     S: Hash + Eq,
 {
     fn drop(&mut self) {
-        let mut registry = self.ignitor.registry.borrow_mut();
+        let mut registry = self.ignitor.registry.lock().unwrap();
         registry.wakers.remove(&self.id);
     }
 }
@@ -220,7 +224,7 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
         if !self.inited.clone().take() {
-            let mut registry = self.ignitor.registry.borrow_mut();
+            let mut registry = self.ignitor.registry.lock().unwrap();
             registry.wakers.insert(self.id, cx.waker().clone());
             self.inited.set(true);
             Poll::Pending

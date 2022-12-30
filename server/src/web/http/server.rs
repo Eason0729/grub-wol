@@ -1,8 +1,8 @@
 use std::{future::Future, io, pin::Pin, rc::Rc};
 
-use log::{info, warn};
 use hyper::{server::conn::Http, service::service_fn, Body, Method, Request, Response};
 use indexmap::IndexMap;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use smol::Async;
 use std::net::{SocketAddr, TcpListener};
@@ -30,13 +30,16 @@ impl Handler {
             f: Rc::new(|req| {
                 Box::pin(async {
                     let bytes = hyper::body::to_bytes(req.into_body()).await?;
-                    let data: I = serde_json::from_slice(&bytes).map_err(|e|Error::DeserializeError(e))?;
+                    let data: I =
+                        serde_json::from_slice(&bytes).map_err(|e| Error::DeserializeError(e))?;
 
-                    let output = serde_json::to_vec(&f(data).await.unwrap()).map_err(|e|Error::SerializeError(e))?;
+                    let output = serde_json::to_vec(&f(data).await.unwrap())
+                        .map_err(|e| Error::SerializeError(e))?;
 
                     Response::builder()
                         .header("Content-Type", "application/json")
-                        .body(Body::from(output)).map_err(|e| e.into())
+                        .body(Body::from(output))
+                        .map_err(|e| e.into())
                 })
             }),
         }
@@ -70,20 +73,22 @@ impl<'a> WebServer<'a> {
             let (stream, _) = listener.accept().await?;
             let stream = SmolStream::from_plain(stream);
 
-            if let Err(err)=http.serve_connection(
-                stream,
-                service_fn(move |request| {
-                    if let Some(f) = self.get_handler(&request) {
-                        f.execute(request)
-                    } else {
-                        default_handler()
-                    }
-                }),
-            )
-            .await{
-                warn!("Hyper throw an error at HTTP Parsing: {}",err);
+            if let Err(err) = http
+                .serve_connection(
+                    stream,
+                    service_fn(move |request| {
+                        if let Some(f) = self.get_handler(&request) {
+                            f.execute(request)
+                        } else {
+                            default_handler()
+                        }
+                    }),
+                )
+                .await
+            {
+                warn!("Hyper throw an error at HTTP Parsing: {}", err);
             };
-        } 
+        }
     }
     fn get_handler(&self, request: &Request<Body>) -> Option<Handler> {
         let route = Route::from_request(&request);
@@ -126,14 +131,17 @@ pub enum Error {
     #[error("Client probably not follow protocal")]
     HyperHttpError(#[from] hyper::http::Error),
     #[error("Client probably not follow protocal")]
-    SerializeError(serde_json::Error),    
+    SerializeError(serde_json::Error),
     #[error("Client probably not follow protocal")]
     DeserializeError(serde_json::Error),
 }
 
 #[cfg(test)]
 mod test {
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::{
+        cell::RefCell,
+        net::{IpAddr, Ipv4Addr},
+    };
 
     use super::*;
 
@@ -156,10 +164,12 @@ mod test {
         );
         smol::block_on(server.listen(socket)).unwrap();
     }
+    #[test]
     fn read_body() {
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000);
 
         let mut server = WebServer::new();
+        let cc = Box::leak(Box::new(RefCell::new(0_usize)));
         server.add_route(
             Route::POST("/read_body"),
             Handler::new(Box::new(|req| {

@@ -63,16 +63,18 @@ where
     }
     /// wait for the signal
     pub async fn wait(&self, signal: S) -> P {
-        let id = self.register(signal).await;
+        let hook = self.register(signal);
 
-        let mut registry = self.registry.lock().unwrap();
-        registry.payloads.remove(&id).unwrap()
+        hook.try_wait().await;
+
+        hook.try_yield().unwrap()
     }
     /// wait for the signal while keep invoking the function
     pub async fn poll_until<F>(&self, signal: S, f: F, interval: time::Duration) -> P
     where
         F: Fn(),
     {
+        let hook = self.register(signal);
         let id = or(
             async {
                 loop {
@@ -80,12 +82,11 @@ where
                     smol::Timer::after(interval).await;
                 }
             },
-            self.register(signal),
+            hook.try_wait(),
         )
         .await;
 
-        let mut registry = self.registry.lock().unwrap();
-        registry.payloads.remove(&id).unwrap()
+        hook.try_yield().unwrap()
     }
 
     /// .
@@ -99,21 +100,18 @@ where
     ///
     /// This function will return an error if timeout
     pub async fn timeout(&self, signal: S, timeout: time::Duration) -> Result<P, ()> {
+        let hook = self.register(signal);
         let id = or(
             async {
                 smol::Timer::after(timeout).await;
-                0
             },
-            self.register(signal),
+            hook.try_wait(),
         )
         .await;
 
-        if id == 0 {
-            Err(())
-        } else {
-            let mut registry = self.registry.lock().unwrap();
-            let payload = registry.payloads.remove(&id).unwrap();
-            Ok(payload)
+        match hook.try_yield() {
+            Some(x) => Ok(x),
+            None => Err(()),
         }
     }
     /// .
@@ -136,8 +134,10 @@ where
     where
         F: Fn(),
     {
+        let hook = self.register(signal);
+
         let id = or(
-            self.register(signal),// marked here: #1
+            hook.try_wait(),
             or(
                 async {
                     loop {
@@ -147,21 +147,14 @@ where
                 },
                 async {
                     smol::Timer::after(timeout).await;
-                    0
                 },
             ),
         )
         .await;
-        // ``self.register(signal)`` drop here: #2
-        // and what if ``self.register(signal)`` yield between #1 and #2?
 
-        // TODO: fix fatal logical error
-        if id == 0 {
-            Err(())
-        } else {
-            let mut registry = self.registry.lock().unwrap();
-            let payload = registry.payloads.remove(&id).unwrap();
-            Ok(payload)
+        match hook.try_yield() {
+            Some(x) => Ok(x),
+            None => Err(()),
         }
     }
     /// signal the caller for a ready event
@@ -182,54 +175,71 @@ where
 
         Some(payload)
     }
-    fn register(&self, signal: S) -> SignalPoll<S, P> {
+    fn register<'a>(&'a self, signal: S) -> Hook<'a, S, P> {
         let mut registry = self.registry.lock().unwrap();
         let id = registry.id_counter;
         registry.id_counter += 1;
 
         registry.signals.push(signal, id);
 
-        SignalPoll {
-            ignitor: &self,
-            id,
-            inited: Cell::new(false),
-        }
+        Hook { ignitor: &self, id }
     }
 }
 
-pub struct SignalPoll<'a, S, P>
+struct Hook<'a, S, P>
 where
     S: Hash + Eq,
 {
     ignitor: &'a EventHook<S, P>,
     id: usize,
-    inited: Cell<bool>,
 }
 
-impl<'a, S, P> Drop for SignalPoll<'a, S, P>
+impl<'a, S, P> Hook<'a, S, P>
 where
     S: Hash + Eq,
 {
-    fn drop(&mut self) {
+    fn try_wait(&'a self) -> HookPoll<'a, S, P> {
+        HookPoll {
+            hook: self,
+            inited: Cell::new(false),
+        }
+    }
+    fn try_yield(self) -> Option<P> {
         let mut registry = self.ignitor.registry.lock().unwrap();
-        registry.wakers.remove(&self.id);
+
+        registry.wakers.remove(&self.id).unwrap();
+
+        match registry.payloads.remove(&self.id) {
+            Some(payload) => Some(payload),
+            None => None,
+        }
     }
 }
 
-impl<'a, S, P> Future for SignalPoll<'a, S, P>
+struct HookPoll<'a, S, P>
 where
     S: Hash + Eq,
 {
-    type Output = usize;
+    hook: &'a Hook<'a, S, P>,
+    inited: Cell<bool>,
+}
 
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+impl<'a, S, P> Future for HookPoll<'a, S, P>
+where
+    S: Hash + Eq,
+{
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         if !self.inited.clone().take() {
-            let mut registry = self.ignitor.registry.lock().unwrap();
-            registry.wakers.insert(self.id, cx.waker().clone());
+            let mut registry = self.hook.ignitor.registry.lock().unwrap();
+
+            registry.wakers.insert(self.hook.id, cx.waker().clone());
+
             self.inited.set(true);
             Poll::Pending
         } else {
-            Poll::Ready(self.id)
+            Poll::Ready(())
         }
     }
 }

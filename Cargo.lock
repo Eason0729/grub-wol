@@ -4,11 +4,11 @@ version = 3
 
 [[package]]
 name = "async-channel"
-version = "1.7.1"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e14485364214912d3b19cc3435dde4df66065127f05fa0d75c712f36f12c2f28"
+checksum = "cf46fee83e5ccffc220104713af3292ff9bc7c64c7de289f66dae8e38d826833"
 dependencies = [
- "concurrent-queue",
+ "concurrent-queue 2.0.0",
  "event-listener",
  "futures-core",
 ]
@@ -20,7 +20,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "871f9bb5e0a22eeb7e8cf16641feb87c9dc67032ccf8ff49e772eb9941d3a965"
 dependencies = [
  "async-task",
- "concurrent-queue",
+ "concurrent-queue 1.2.4",
  "fastrand",
  "futures-lite",
  "once_cell",
@@ -47,7 +47,7 @@ checksum = "e8121296a9f05be7f34aa4196b1747243b3b62e048bb7906f644f3fbfc490cf7"
 dependencies = [
  "async-lock",
  "autocfg",
- "concurrent-queue",
+ "concurrent-queue 1.2.4",
  "futures-lite",
  "libc",
  "log",
@@ -178,6 +178,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af4780a44ab5696ea9e28294517f1fffb421a83a25af521333c838635509db9c"
 dependencies = [
  "cache-padded",
+]
+
+[[package]]
+name = "concurrent-queue"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd7bef69dc86e3c610e4e7aed41035e2a7ed12e72dd7530f61327a6579a4390b"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fb766fa798726286dbbb842f174001dab8abc7b627a1dd86e0b7222a95d929f"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
@@ -447,6 +465,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ryu"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4b9743ed687d4b4bcedf9ff5eaa7398495ae14e61cba0a295704edbc7decde"
+
+[[package]]
 name = "serde"
 version = "1.0.148"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -467,6 +491,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.91"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877c235533714907a8c2464236f5c4b2a17262ef1bd71f38f35ea592c8da6883"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -481,10 +516,14 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
+ "bincode",
  "hyper",
  "indexmap",
+ "log",
  "proto",
  "serde",
+ "serde_json",
  "smol",
  "thiserror",
  "tokio",

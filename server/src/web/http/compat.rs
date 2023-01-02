@@ -12,17 +12,52 @@
 //!
 //! - http://localhost:8000/
 
+use easy_parallel::Parallel;
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use smol::{io, prelude::*, Async};
+use smol::{block_on, io, prelude::*, Async, Executor};
+
+#[derive(Clone)]
+pub struct SmolExecutor<'a> {
+    ex: Arc<Executor<'a>>,
+}
+
+impl<'a> SmolExecutor<'a> {
+    pub fn new() -> Self {
+        Self {
+            ex: Arc::new(Executor::default()),
+        }
+    }
+    pub fn spawn_detach(&self, future: impl Future<Output = ()> + Send + 'a) {
+        self.ex.spawn(future).detach();
+    }
+    pub fn detach_run(&self, future: impl Future<Output = ()> + Send + 'a, thread: usize) {
+        self.spawn_detach(future);
+        self.run(thread);
+    }
+    pub fn run(&self, thread: usize) {
+        Parallel::new()
+            .each(0..thread, |_| loop {
+                block_on(self.ex.tick())
+            })
+            .finish(|| {});
+    }
+}
+
+impl<'a, F: Future + Send + 'static> hyper::rt::Executor<F> for SmolExecutor<'a> {
+    fn execute(&self, fut: F) {
+        self.ex.spawn(async { drop(fut.await) }).detach();
+    }
+}
 
 /// Spawns futures.
 #[derive(Clone)]
-pub struct SmolExecutor;
+pub struct SmolExampleExecutor;
 
-impl<F: Future + Send + 'static> hyper::rt::Executor<F> for SmolExecutor {
+impl<F: Future + Send + 'static> hyper::rt::Executor<F> for SmolExampleExecutor {
     fn execute(&self, fut: F) {
         smol::spawn(async { drop(fut.await) }).detach();
     }

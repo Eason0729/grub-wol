@@ -5,7 +5,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use smol::Async;
 
-use super::compat::{SmolExecutor, SmolListener};
+use super::compat::{SmolExampleExecutor, SmolListener};
 
 /// Serves a request and returns a response.
 async fn serve(req: Request<Body>) -> Result<Response<Body>, Error> {
@@ -18,7 +18,7 @@ async fn listen(listener: Async<TcpListener>) -> Result<(), Error> {
     println!("Listening on http://{}", listener.get_ref().local_addr()?);
 
     Server::builder(SmolListener::new(&listener))
-        .executor(SmolExecutor)
+        .executor(SmolExampleExecutor)
         .serve(make_service_fn(move |_| async {
             Ok::<_, Error>(service_fn(move |req| serve(req)))
         }))

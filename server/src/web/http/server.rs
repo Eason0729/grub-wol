@@ -1,107 +1,68 @@
-use std::{future::Future, io, pin::Pin, rc::Rc};
+use std::{
+    future::Future, io, marker::PhantomData, num::NonZeroUsize, pin::Pin, sync::Arc,
+    thread::available_parallelism,
+};
 
-use hyper::{server::conn::Http, service::service_fn, Body, Method, Request, Response};
+use hyper::{
+    server::conn::Http,
+    service::{make_service_fn, service_fn},
+    Body, Method, Request, Response,
+};
 use indexmap::IndexMap;
 use log::{info, warn};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use smol::Async;
 use std::net::{SocketAddr, TcpListener};
 
-use super::compat::{SmolExecutor, SmolStream};
+use super::compat::{SmolExecutor, SmolListener, SmolStream};
 
-type PFC<I, O> = dyn Fn(I) -> Pin<Box<dyn Future<Output = Result<O, Error>> + Send + Sync>>;
-
-#[derive(Clone)]
-struct Handler {
-    f: Rc<PFC<Request<Body>, Response<Body>>>,
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("io error")]
+    IoError(#[from] io::Error),
+    #[error("hyper error")]
+    HyperError(#[from] hyper::Error),
+    #[error("Client probably not follow http protocal")]
+    HyperHttpError(#[from] hyper::http::Error),
+    #[error("Error serializing json")]
+    SerializeError(serde_json::Error),
+    #[error("Error deserializing json")]
+    DeserializeError(serde_json::Error),
 }
 
-impl Handler {
-    fn new(f: Box<PFC<Request<Body>, Response<Body>>>) -> Self {
-        Self { f: Rc::new(f) }
+type PinFut<O> = Pin<Box<dyn Future<Output = O> + Send + Sync>>;
+
+struct Handler<S> {
+    f: Arc<dyn Fn(Request<Body>, &S) -> PinFut<Result<Response<Body>, Error>> + Send + Sync>,
+}
+
+impl<S> Clone for Handler<S> {
+    fn clone(&self) -> Self {
+        Self { f: self.f.clone() }
     }
-    fn json<F, I, O>(f: &'static F) -> Self
+}
+
+impl<S> Handler<S> {
+    fn new<F>(f: F) -> Self
     where
-        F: Fn(I) -> Pin<Box<dyn Future<Output = Result<O, Error>> + Send + Sync>> + Send + Sync,
-        I: for<'c> Deserialize<'c> + Send + Sync,
-        O: Serialize,
+        F: Fn(Request<Body>, &S) -> PinFut<Result<Response<Body>, Error>> + Send + Sync + 'static,
     {
-        Self {
-            f: Rc::new(|req| {
-                Box::pin(async {
-                    let bytes = hyper::body::to_bytes(req.into_body()).await?;
-                    let data: I =
-                        serde_json::from_slice(&bytes).map_err(|e| Error::DeserializeError(e))?;
-
-                    let output = serde_json::to_vec(&f(data).await.unwrap())
-                        .map_err(|e| Error::SerializeError(e))?;
-
-                    Response::builder()
-                        .header("Content-Type", "application/json")
-                        .body(Body::from(output))
-                        .map_err(|e| e.into())
-                })
-            }),
-        }
+        Self { f: Arc::new(f) }
     }
     fn execute(
         &self,
         req: Request<Body>,
+        app_state: &S,
     ) -> Pin<Box<dyn Future<Output = Result<Response<Body>, Error>> + Send + Sync>> {
-        (self.f)(req)
+        (self.f)(req, app_state)
     }
 }
 
-pub struct WebServer<'a> {
-    route: IndexMap<Route<'a>, Handler>,
-}
+// struct ts<S>where S:Send{
+//     s:PhantomData<S>
+// }
 
-impl<'a> WebServer<'a> {
-    fn new() -> Self {
-        Self {
-            route: Default::default(),
-        }
-    }
-    fn add_route(&mut self, route: Route<'a>, handler: Handler) {
-        assert!(self.route.insert(route, handler).is_none());
-    }
-    pub async fn listen(&'a self, socket: SocketAddr) -> Result<(), Error> {
-        let listener: Async<TcpListener> = Async::<TcpListener>::bind(socket)?;
-        let http = Http::new().with_executor(SmolExecutor);
-
-        loop {
-            let (stream, _) = listener.accept().await?;
-            let stream = SmolStream::from_plain(stream);
-
-            if let Err(err) = http
-                .serve_connection(
-                    stream,
-                    service_fn(move |request| {
-                        if let Some(f) = self.get_handler(&request) {
-                            f.execute(request)
-                        } else {
-                            default_handler()
-                        }
-                    }),
-                )
-                .await
-            {
-                warn!("Hyper throw an error at HTTP Parsing: {}", err);
-            };
-        }
-    }
-    fn get_handler(&self, request: &Request<Body>) -> Option<Handler> {
-        let route = Route::from_request(&request);
-        match self.route.get(&route) {
-            Some(x) => Some(x.clone()),
-            None => None,
-        }
-    }
-}
-
-fn default_handler() -> Pin<Box<dyn Future<Output = Result<Response<Body>, Error>> + Send + Sync>> {
-    Box::pin(async { Ok(Response::new(Body::from("No such route!"))) })
-}
+// impl ts<Handler<'static,()>>{}
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 pub enum Route<'a> {
@@ -122,72 +83,81 @@ impl<'a> Route<'a> {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("io error")]
-    IoError(#[from] io::Error),
-    #[error("hyper error")]
-    HyperError(#[from] hyper::Error),
-    #[error("Client probably not follow protocal")]
-    HyperHttpError(#[from] hyper::http::Error),
-    #[error("Client probably not follow protocal")]
-    SerializeError(serde_json::Error),
-    #[error("Client probably not follow protocal")]
-    DeserializeError(serde_json::Error),
+struct ServerData<'a, S> {
+    routes: IndexMap<Route<'static>, Handler<S>>,
+    ex: SmolExecutor<'a>,
+    state: S,
 }
 
-#[cfg(test)]
-mod test {
-    use std::{
-        cell::RefCell,
-        net::{IpAddr, Ipv4Addr},
-    };
+struct Server<'a, S>
+where
+    S: Sync+Send,
+{
+    data: Arc<ServerData<'a, S>>,
+}
 
-    use super::*;
-
-    fn stiaic() {
-        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000);
-
-        let mut server = WebServer::new();
-        server.add_route(
-            Route::GET("/helloworld.html"),
-            Handler::new(Box::new(|req| {
-                Box::pin(async {
-                    let res = Response::builder()
-                        .header("Content-Type", "text/html")
-                        .body(Body::from(
-                            include_bytes!("test/helloworld.html").as_slice(),
-                        ));
-                    res.map_err(|e| e.into())
-                })
-            })),
-        );
-        smol::block_on(server.listen(socket)).unwrap();
+impl<'a, S> Clone for Server<'a, S>
+where
+    S: Sync+Send,
+{
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone() }
     }
-    #[test]
-    fn read_body() {
-        let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000);
+}
 
-        let mut server = WebServer::new();
-        let cc = Box::leak(Box::new(RefCell::new(0_usize)));
-        server.add_route(
-            Route::POST("/read_body"),
-            Handler::new(Box::new(|req| {
-                Box::pin(async {
-                    let body = req.into_body();
-                    let bytes = hyper::body::to_bytes(body).await?;
+impl<'a, S> Server<'a, S>
+where
+    S: Sync+Send,
+{
+    fn get_handler(&self, request: &Request<Body>) -> Option<Handler<S>> {
+        let route = Route::from_request(&request);
+        self.data.routes.get(&route).map(|item| item.clone())
+    }
+    async fn accpet(&self, request: Request<Body>) -> Result<Response<Body>, Error> {
+        let default_handler = Handler::new(|_: Request<Body>, _: &S| {
+            Box::pin(async { Ok(Response::new(Body::from("No such route!"))) })
+        });
+        let handler = self.get_handler(&request).unwrap_or(default_handler);
 
-                    println!("{:?}", bytes);
+        handler.execute(request, &self.data.state).await
+    }
+    fn listen_block(&self, socket: SocketAddr) {
+        let thread = usize::from(available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()));
 
-                    let res = Response::builder()
-                        .header("Content-Type", "text/html")
-                        .body(Body::from(
-                            include_bytes!("test/helloworld.html").as_slice(),
-                        ));
-                    res.map_err(|e| e.into())
-                })
-            })),
+        self.data.ex.clone().detach_run(
+            async move {
+                let listener = Async::<TcpListener>::bind(socket).expect("error opening socket");
+                loop {
+                    let self_=self.clone();
+                    // try to accept tcp connection
+                    let stream = match listener.accept().await {
+                        Ok((stream, _)) => stream,
+                        Err(_) => {
+                            warn!("tcp connection hit the port but close before established");
+                            continue;
+                        }
+                    };
+                    // dispatch to executor
+                    self.data.ex.clone().spawn_detach(async move {
+                        let self_=self_.clone();
+                        let stream = SmolStream::from_plain(stream);
+                        let http = Http::new();
+
+                        let service=service_fn(move |request| self_.accpet(request));
+
+                        if let Err(err) = http
+                            .serve_connection(
+                                stream,
+                                service,
+                            )
+                            .await
+                        {
+                            warn!("Hyper throw an error at HTTP Parsing: {}", err);
+                        };
+                    })
+                }
+            },
+            thread,
         );
-        smol::block_on(server.listen(socket)).unwrap();
     }
 }

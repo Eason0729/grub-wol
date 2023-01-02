@@ -453,6 +453,7 @@ dependencies = [
 name = "proto"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "bincode",
  "lazy_static",
  "serde",

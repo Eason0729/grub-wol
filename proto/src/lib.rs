@@ -3,6 +3,7 @@ extern crate lazy_static;
 
 pub mod constant;
 mod def;
+mod mock;
 mod transfer;
 
 pub mod prelude {

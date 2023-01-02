@@ -221,7 +221,7 @@ impl<'a> IntBootGraph<'a> {
 
         Ok((os, trace))
     }
-    pub fn into_inner(self) -> (BootGraph, Packet<'a>, protocal::ID) {
+    pub fn disassemble(self) -> (BootGraph, Packet<'a>, protocal::ID) {
         let mut map = IndexMap::new();
 
         for ios in self.ioss {
@@ -355,3 +355,11 @@ pub enum Error {
     #[error("Packet Error")]
     PacketError(#[from] packet::Error),
 }
+
+// #[cfg(test)]
+// mod test{
+//     #[test]
+//     fn new_intgraph(){
+
+//     }
+// }

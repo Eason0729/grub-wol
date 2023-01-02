@@ -209,7 +209,7 @@ impl<'a> Machine<'a> {
 
         boot_graph.tick().await?;
 
-        let (boot_graph, packet, _) = boot_graph.into_inner();
+        let (boot_graph, packet, _) = boot_graph.disassemble();
 
         let machine = Machine {
             display_name,

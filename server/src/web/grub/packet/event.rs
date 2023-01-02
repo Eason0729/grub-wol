@@ -1,6 +1,6 @@
 // TODO: fix bug-> if event didn't yield(timeout), signals(on the Registry) would have possible memory leak
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::Mutex;
@@ -8,7 +8,7 @@ use std::task::{self, Poll};
 use std::time;
 use std::{collections::*, future::Future};
 
-use smol::future::or;
+use smol::future::or; 
 
 use super::hashvec::*;
 

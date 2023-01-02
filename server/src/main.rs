@@ -1,10 +1,5 @@
-pub mod control;
-pub mod ulog;
+mod test;
 pub mod web;
-
-use proto::prelude as protocal;
-use smol::block_on;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 fn main() {
     // let control_server = control::Server::new();

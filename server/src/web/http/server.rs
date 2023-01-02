@@ -61,12 +61,6 @@ impl<S> Handler<S> {
     }
 }
 
-// struct ts<S>where S:Send{
-//     s:PhantomData<S>
-// }
-
-// impl ts<Handler<'static,()>>{}
-
 #[derive(Hash, PartialEq, Eq, Clone)]
 pub enum Route<'a> {
     GET(&'a str),
@@ -175,6 +169,11 @@ where
 
         handler.execute(request, self.data.state.clone())
     }
+    /// spawn task into embedded executor
+    pub fn spawn_detach(&self, future: impl Future<Output = ()> + Send + 'a) {
+        self.data.ex.spawn_detach(future);
+    }
+    /// start web server and block current thread
     pub fn listen_block(self, socket: SocketAddr) {
         let thread = usize::from(available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()));
 
@@ -213,7 +212,6 @@ where
 #[cfg(test)]
 mod test {
     use std::{
-        cell::RefCell,
         net::{IpAddr, Ipv4Addr},
         sync::atomic::{AtomicUsize, Ordering},
     };

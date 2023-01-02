@@ -9,12 +9,12 @@ use std::{
     task::{self, Poll},
 };
 
-pub struct MockStream {
+pub struct MockTcpStream {
     writer: Option<Arc<Mutex<VecDeque<u8>>>>,
     reader: Option<Arc<Mutex<VecDeque<u8>>>>,
 }
 
-impl AsyncWrite for MockStream {
+impl AsyncWrite for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -40,7 +40,7 @@ impl AsyncWrite for MockStream {
     }
 }
 
-impl AsyncRead for MockStream {
+impl AsyncRead for MockTcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -57,16 +57,16 @@ impl AsyncRead for MockStream {
     }
 }
 
-impl MockStream {
+impl MockTcpStream {
     pub fn new_pair() -> (Self, Self) {
         let rw = Some(Arc::new(Mutex::new(VecDeque::new())));
         let wr = Some(Arc::new(Mutex::new(VecDeque::new())));
 
-        let rs = MockStream {
+        let rs = MockTcpStream {
             writer: rw.clone(),
             reader: wr.clone(),
         };
-        let ws = MockStream {
+        let ws = MockTcpStream {
             writer: wr,
             reader: rw,
         };

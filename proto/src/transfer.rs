@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::vec;
 use thiserror;
 
-use crate::mock::MockStream;
+use crate::mock::MockTcpStream;
 
 type PrefixType = crate::constant::PacketPrefix;
 const MAXSIZE: PrefixType = 1048576;
@@ -92,7 +92,7 @@ where
     }
 }
 
-impl<UP, DP> Connection<UP, DP, MockStream, MockStream>
+impl<UP, DP> Connection<UP, DP, MockTcpStream, MockTcpStream>
 where
     UP: Serialize,
     DP: for<'a> Deserialize<'a>,
@@ -103,4 +103,4 @@ where
 }
 
 pub type TcpConn<U, D> = Connection<U, D, net::TcpStream, net::TcpStream>;
-pub type DummyConn<U, D> = Connection<U, D, MockStream, MockStream>;
+pub type DummyConn<U, D> = Connection<U, D, MockTcpStream, MockTcpStream>;

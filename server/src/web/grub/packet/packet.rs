@@ -130,12 +130,13 @@ pub struct Packet<'a> {
 }
 
 impl<'a> Packet<'a> {
-    pub fn get_handshake_uid(&mut self) -> Result<protocal::ID, Error> {
-        let raw = ok_or_ref!(self.raw, Error::ClientOffline);
+    pub fn get_handshake_uid(&self) -> Result<protocal::ID, Error> {
+        let raw = self.raw.as_ref().ok_or(Error::ClientOffline)?;
+        // let raw = ok_or_ref!(self.raw, Error::ClientOffline);
         Ok(raw.uid)
     }
-    pub fn get_mac(&mut self) -> Result<MacAddress, Error> {
-        let raw = ok_or_ref!(self.raw, Error::ClientOffline);
+    pub fn get_mac(&self) -> Result<MacAddress, Error> {
+        let raw = self.raw.as_ref().ok_or(Error::ClientOffline)?;
         Ok(raw.mac_address)
     }
     fn fake_handshake_uid(&mut self, id: protocal::ID) -> Result<(), Error> {

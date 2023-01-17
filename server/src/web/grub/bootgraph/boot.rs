@@ -17,8 +17,8 @@ trait IntoLow {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct OS {
-    id: protocal::ID,
-    display_name: String,
+    pub id: protocal::ID,
+    pub display_name: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
@@ -299,10 +299,10 @@ pub struct BootGraph {
     os: IndexMap<LowOS, OS>,
 }
 
-pub type OSId=protocal::ID;
+pub type OSId = protocal::ID;
 
 impl BootGraph {
-    pub fn current_os(&self, packet: &mut Packet<'_>) -> Result<OSState<&OS>, Error> {
+    pub fn current_os(&self, packet: &Packet<'_>) -> Result<OSState<&OS>, Error> {
         match packet.get_handshake_uid() {
             Ok(x) => {
                 let os = self.os.get(&LowOS { id: x });
@@ -323,8 +323,8 @@ impl BootGraph {
     pub fn list_os(&self) -> impl Iterator<Item = &OS> {
         self.os.iter().map(|(_, v)| v)
     }
-    pub fn find_os(&self,os:OSId)->Option<&OS>{
-        self.os.get(&LowOS{id:os})
+    pub fn find_os(&self, os: OSId) -> Option<&OS> {
+        self.os.get(&LowOS { id: os })
     }
     pub async fn boot_into(
         &self,
@@ -335,7 +335,25 @@ impl BootGraph {
         let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
-        let to = OSState::Up(LowOS { id:os });
+        let to = OSState::Up(LowOS { id: os });
+        let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
+
+        for method in self
+            .graph
+            .dijkstra(&from)
+            .trace(&to)
+            .ok_or(Error::BadGraph)?
+        {
+            method.execute(packet, &mac_address).await?;
+        }
+
+        Ok(())
+    }
+    pub async fn off(&self, packet: &mut Packet<'_>, mac_address: [u8; 6]) -> Result<(), Error> {
+        let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
+        let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
+
+        let to = OSState::Down;
         let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
         for method in self

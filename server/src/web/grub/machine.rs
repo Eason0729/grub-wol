@@ -8,12 +8,12 @@ use indexmap::IndexMap;
 use log::warn;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use smol::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::{RwLock, Mutex};
+use std::sync::{Mutex, RwLock};
 use std::{collections::*, io};
 
 type MacAddress = [u8; 6];
@@ -65,15 +65,18 @@ where
             None
         }
     }
-    fn iter(&mut self) -> impl Iterator<Item = &mut T> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.buffer.iter_mut()
+    }
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.buffer.iter()
     }
 }
 
 pub struct Server<'a> {
     machines: RwLock<IndexMap<MacAddress, Machine<'a>>>,
     packets: Packets,
-    unknown_packet: Mutex<RingBuffer<Packet<'a>, 4>>,
+    unknown_packet: RwLock<RingBuffer<Packet<'a>, 4>>,
     listener: TcpListener,
 }
 
@@ -88,35 +91,9 @@ impl<'a> Server<'a> {
         })
     }
     pub fn save(&self, path: &Path) -> Result<(), Error> {
-        // let mut file=File::open(path)?;
-        // let data=&*self.machines.read().unwrap();
-        // let machines = bincode::serialize(&data)?;
-
-        // let mut data = vec![];
-        // file.read_to_end(&mut data)?;
-
-        // if machines!=data{
-        //     File::create(path)?.write_all(&data)?;
-        // }
-
-        // Ok(())
         todo!()
     }
-    pub async fn load(socket: SocketAddr,path: &Path) -> Result<Server<'a>, Error> {
-        // let mut file=File::open(path)?;
-
-        // let mut data = vec![];
-        // file.read_to_end(&mut data)?;
-        // let machines = bincode::deserialize(&data)?;
-
-        // let listener = TcpListener::bind(socket).await?;
-
-        // Ok(Self {
-        //     machines:RwLock::new(machines),
-        //     packets: Default::default(),
-        //     unknown_packet: Default::default(),
-        //     listener
-        // })
+    pub async fn load(socket: SocketAddr, path: &Path) -> Result<Server<'a>, Error> {
         todo!()
     }
     pub async fn tick(&'a self) -> Result<(), Error> {
@@ -143,32 +120,17 @@ impl<'a> Server<'a> {
         if let Some(machine) = self.machines.write().unwrap().get_mut(&mac_address) {
             machine.connect(packet);
         } else {
-            let mut unknown_packet = self.unknown_packet.lock().unwrap();
+            let mut unknown_packet = self.unknown_packet.write().unwrap();
             unknown_packet.push(packet);
         }
         Ok(())
     }
-    // pub fn list_machine(&'a self) -> Vec<&'a Machine> {
-    //     // self.machines.read().await.iter().map(|(_, v)| v).collect()
-    //     todo!()
-    // }
-    // pub fn list_unknown(&self) -> Result<Vec<MacAddress>, Error> {
-    //     let mut unknown_packet = self.unknown_packet.lock().unwrap();
-
-    //     let mut result = vec![];
-    //     for packet in unknown_packet.iter() {
-    //         if let Ok(mac) = packet.get_mac() {
-    //             result.push(mac);
-    //         }
-    //     }
-    //     Ok(result)
-    // }
     pub async fn new_machine(
         &'a self,
         mac: MacAddress,
         display_name: String,
     ) -> Result<bool, Error> {
-        let mut unknown_packet = self.unknown_packet.lock().unwrap();
+        let mut unknown_packet = self.unknown_packet.write().unwrap();
 
         let packet = unknown_packet.pop(|item| match item.get_mac() {
             Ok(x) => x == mac,
@@ -184,19 +146,90 @@ impl<'a> Server<'a> {
             Ok(false)
         }
     }
-    pub fn list_machine(&self)->Vec<u8>{
-        let mac_address=self.machines.read().unwrap().iter();
+    pub fn list_machine(&self) -> Result<Vec<u8>, Error> {
+        let mut machines = Vec::new();
 
-        todo!()
+        let machines_src = self.machines.read().unwrap();
+        for (mac_address, machine) in machines_src.iter() {
+            let current_os = machine.current_os()?.map(|os| os.id);
+            machines.push(api::MachineInfo {
+                state: match current_os {
+                    Some(os) => api::MachineState::Up(os),
+                    None => api::MachineState::Down,
+                },
+                mac_address,
+            });
+        }
+        // TODO: fix this
+        // let unknown_src = self.unknown_packet.write().unwrap();
+        // for packet in unknown_src.iter() {
+        //     let mac_address=if let Ok(mac)=packet.get_mac(){
+        //         mac
+        //     }else{
+        //         continue;
+        //     };
+        //     machines.push(api::MachineInfo {
+        //         mac_address: &mac_address.to_owned(),
+        //         state:api::MachineState::Uninited
+        //     });
+        // }
+
+        let list = api::MachineList { machines };
+        Ok(serde_json::to_vec(&list).unwrap())
     }
-    pub fn find_machine(){
+    pub fn find_machine(&self, mac_address: &MacAddress) -> Result<Vec<u8>, Error> {
+        match self.machines.read().unwrap().get(mac_address) {
+            Some(machine) => {
+                let current_os = match machine.current_os()? {
+                    Some(os) => Some(os.id),
+                    None => None,
+                };
 
+                let machine_info = Some(api::MachineInfo {
+                    mac_address,
+                    state: match current_os {
+                        Some(os) => api::MachineState::Up(os),
+                        None => api::MachineState::Down,
+                    },
+                });
+                Ok(serde_json::to_vec(&machine_info).unwrap())
+            }
+            None => Ok(serde_json::to_vec::<Option<api::MachineInfo>>(&None).unwrap()),
+        }
     }
-    pub fn list_os(){
-
+    pub fn list_os(&self, mac_address: &MacAddress) -> Result<Vec<u8>, Error> {
+        match self.machines.read().unwrap().get(mac_address) {
+            Some(machine) => {
+                let oss = machine
+                    .list_os()
+                    .map(|os| api::OsInfo {
+                        display_name: &os.display_name,
+                        id: os.id,
+                    })
+                    .collect();
+                let list = api::OsList { oss };
+                Ok(serde_json::to_vec(&list).unwrap())
+            }
+            None => Ok(serde_json::to_vec::<Option<api::OsList>>(&None).unwrap()),
+        }
     }
-    pub fn find_os(){
-
+    pub async fn off(&self, mac_address: &MacAddress)-> Result<bool,Error>{
+        match self.machines.write().unwrap().get_mut(mac_address) {
+            Some(machine) => {
+                machine.off().await?;
+                Ok(true)
+            },
+            None => Ok(false),
+        }
+    }
+    pub async fn boot(&self, mac_address: &MacAddress,os:bootgraph::OSId)-> Result<bool,Error>{
+        match self.machines.write().unwrap().get_mut(mac_address) {
+            Some(machine) => {
+                machine.boot(os).await?;
+                Ok(true)
+            },
+            None => Ok(false),
+        }
     }
 }
 
@@ -210,22 +243,29 @@ pub struct Machine<'a> {
 }
 
 impl<'a> Machine<'a> {
-    fn connect(&mut self, packet: Packet<'a>) ->Option<Packet<'a>>{
-        match self.packet{
+    fn connect(&mut self, packet: Packet<'a>) -> Option<Packet<'a>> {
+        match self.packet {
             Some(_) => Some(packet),
             None => {
-                self.packet=Some(packet);
+                self.packet = Some(packet);
                 None
-            },
+            }
         }
     }
-    async fn boot(&mut self,os:bootgraph::OSId)->Result<(),Error>{
-        let packet=self.packet.as_mut().ok_or(Error::ClientNotConnected)?;
-        self.boot_graph.boot_into(os, packet, self.mac_address).await?;
+    async fn boot(&mut self, os: bootgraph::OSId) -> Result<(), Error> {
+        let packet = self.packet.as_mut().ok_or(Error::ClientNotConnected)?;
+        self.boot_graph
+            .boot_into(os, packet, self.mac_address)
+            .await?;
+        Ok(())
+    }
+    async fn off(&mut self) -> Result<(), Error> {
+        let packet = self.packet.as_mut().ok_or(Error::ClientNotConnected)?;
+        self.boot_graph.off(packet, self.mac_address).await?;
         Ok(())
     }
     async fn new<'b>(
-        mut packet: Packet<'b>,
+        packet: Packet<'b>,
         display_name: String,
     ) -> Result<(Machine, Packet<'_>), Error> {
         let mac_address = packet.get_mac()?;
@@ -245,11 +285,17 @@ impl<'a> Machine<'a> {
 
         Ok((machine, packet))
     }
-    fn list_os(&self) ->impl Iterator<Item = &bootgraph::OS> {
+    fn list_os(&self) -> impl Iterator<Item = &bootgraph::OS> {
         self.boot_graph.list_os()
     }
-    fn find_os(&self,os:bootgraph::OSId)->Option<&bootgraph::OS>{
-        self.boot_graph.find_os(os)
+    fn current_os(&self) -> Result<Option<&OS>, Error> {
+        Ok(match &self.packet {
+            Some(packet) => match self.boot_graph.current_os(packet)? {
+                OSState::Down => None,
+                OSState::Up(os) => Some(os),
+            },
+            None => None,
+        })
     }
 }
 

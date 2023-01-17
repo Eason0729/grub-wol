@@ -8,7 +8,7 @@ use std::task::{self, Poll};
 use std::time;
 use std::{collections::*, future::Future};
 
-use smol::future::or; 
+use smol::future::or;
 
 use super::hashvec::*;
 

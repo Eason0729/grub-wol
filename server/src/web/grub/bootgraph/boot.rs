@@ -299,6 +299,8 @@ pub struct BootGraph {
     os: IndexMap<LowOS, OS>,
 }
 
+pub type OSId=protocal::ID;
+
 impl BootGraph {
     pub fn current_os(&self, packet: &mut Packet<'_>) -> Result<OSState<&OS>, Error> {
         match packet.get_handshake_uid() {
@@ -321,16 +323,19 @@ impl BootGraph {
     pub fn list_os(&self) -> impl Iterator<Item = &OS> {
         self.os.iter().map(|(_, v)| v)
     }
+    pub fn find_os(&self,os:OSId)->Option<&OS>{
+        self.os.get(&LowOS{id:os})
+    }
     pub async fn boot_into(
         &self,
-        os: &OS,
+        os: OSId,
         packet: &mut Packet<'_>,
         mac_address: [u8; 6],
     ) -> Result<(), Error> {
         let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
-        let to = OSState::Up(LowOS { id: os.id });
+        let to = OSState::Up(LowOS { id:os });
         let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
         for method in self

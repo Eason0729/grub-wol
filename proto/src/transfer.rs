@@ -102,5 +102,7 @@ where
     }
 }
 
+// #[cfg(not(test))]
 pub type TcpConn<U, D> = Connection<U, D, net::TcpStream, net::TcpStream>;
-pub type DummyConn<U, D> = Connection<U, D, MockTcpStream, MockTcpStream>;
+// #[cfg(test)]
+// pub type TcpConn<U, D> = Connection<U, D, MockTcpStream, MockTcpStream>;

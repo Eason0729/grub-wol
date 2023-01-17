@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "append-only-vec"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5608767d94038891df4c7bb82f6b1beb55fe3d204735985e20de329bc35d5fee"
+
+[[package]]
 name = "async-channel"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -523,6 +529,7 @@ dependencies = [
 name = "server"
 version = "0.1.0"
 dependencies = [
+ "append-only-vec",
  "async-channel",
  "bincode",
  "easy-parallel",

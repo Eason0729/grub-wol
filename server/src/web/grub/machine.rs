@@ -4,12 +4,14 @@ use super::packet::{self, Packet, Packets};
 
 use super::bootgraph::{self, *};
 
+use async_std::io::ReadExt;
 use async_std::net;
 use indexmap::IndexMap;
 use log::warn;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::fs::File;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -73,6 +75,26 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize,Default)]
+struct ServerSave<'a> {
+    machines:&'a IndexMap<MacAddress, Machine<'a>>,
+}
+
+impl<'a> ServerSave<'a> {
+    fn new(path: &Path)->Result<Self, Error>{
+        Ok(if path.exists()&&path.is_file() {
+            let mut file = File::open(path)?;
+            
+            let buf = &mut Vec::new();
+            file.read_to_end(buf)?;
+    
+            bincode::deserialize_from(file)?
+        }else{
+            Default::default()
+        })
+    }
+}
+
 pub struct Server<'a> {
     machines: RwLock<IndexMap<MacAddress, Machine<'a>>>,
     packets: Packets,
@@ -90,10 +112,35 @@ impl<'a> Server<'a> {
             listener,
         })
     }
-    pub fn save(&self, path: &Path) -> Result<(), Error> {
+    pub async fn save(&self, path: &Path) -> Result<(), Error> {
+        let save=&*self.machines.read().unwrap();
+        // unsafe{
+        //     let save=ServerSave{
+        //         machines:Box::from_raw(raw)
+        //     };
+    
+        // }
+
+
+
         todo!()
     }
     pub async fn load(socket: SocketAddr, path: &Path) -> Result<Server<'a>, Error> {
+        // let save=if path.exists()&&path.is_file() {
+        //     let mut file = File::open(path)?;
+            
+        //     let buf = &mut Vec::new();
+        //     file.read_to_end(buf)?;
+    
+        //     bincode::deserialize_from::<_,ServerSave>(file)?
+        // }else{
+        //     Default::default()
+        // };
+
+        // let mut server = Server::new(socket).await?;
+        // server.machines = *save.machines;
+
+        // Ok(server)
         todo!()
     }
     pub async fn tick(&'a self) -> Result<(), Error> {

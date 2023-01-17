@@ -179,6 +179,7 @@ where
     }
 }
 
+// TODO: use PhontomData to prevent calling try_yield before calling try_wait
 struct Hook<'a, S, P>
 where
     S: Hash + Eq,
@@ -239,8 +240,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use async_std::task::spawn;
@@ -252,7 +253,7 @@ mod test {
         let event_q = Arc::new(EventHook::default());
         let output = Arc::new(AtomicUsize::new(0));
 
-        let event_q1=event_q.clone();
+        let event_q1 = event_q.clone();
         spawn(async move {
             sleep(Duration::from_millis(20)).await;
             for _ in 0..100 {
@@ -261,75 +262,72 @@ mod test {
         });
 
         for _ in 0..100 {
-            let event_q=event_q.clone();
-            let output=output.clone();
-            spawn(async move{
+            let event_q = event_q.clone();
+            let output = output.clone();
+            spawn(async move {
                 event_q.wait(1).await;
                 output.fetch_add(1, Ordering::Relaxed);
             });
         }
 
-        loop{
+        loop {
             sleep(time::Duration::from_millis(50)).await;
-            if output.load(Ordering::Relaxed)==100{
+            if output.load(Ordering::Relaxed) == 100 {
                 break;
             }
         }
     }
 
-    // #[test]
-    // fn timeout() {
-    //     let event_q = EventHook::<_, ()>::default();
-    //     let output = AtomicUsize::new(0);
-    //     let ex = smol::LocalExecutor::new();
+    #[async_std::test]
+    async fn timeout() {
+        let event_q = Arc::new(EventHook::<(), ()>::default());
+        let output = Arc::new(AtomicUsize::new(0));
 
-    //     for _ in 0..100 {
-    //         ex.spawn(async {
-    //             if event_q.timeout(0, Duration::from_millis(20)).await.is_err() {
-    //                 output.fetch_add(1, Ordering::Relaxed);
-    //             }
-    //         })
-    //         .detach();
-    //     }
+        for _ in 0..100 {
+            let event_q = event_q.clone();
+            let output = output.clone();
+            spawn(async move {
+                if event_q
+                    .timeout((), Duration::from_millis(20))
+                    .await
+                    .is_err()
+                {
+                    output.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+        }
 
-    //     loop {
-    //         ex.try_tick();
-    //         if ex.is_empty() {
-    //             break;
-    //         }
-    //     }
+        loop {
+            sleep(time::Duration::from_millis(50)).await;
+            if output.load(Ordering::Relaxed) == 100 {
+                break;
+            }
+        }
+    }
 
-    //     assert_eq!(output.load(Ordering::Relaxed), 100);
-    // }
+    #[test]
+    fn timeout_remove() {
+        let event_q = Arc::new(EventHook::<_, ()>::default());
+        let event_q1 = event_q.clone();
+        let event_q2 = event_q.clone();
+        let event_q3 = event_q.clone();
 
-    // #[test]
-    // fn timeout_remove() {
-    //     let event_q = EventHook::<_, ()>::default();
-    //     let ex = smol::LocalExecutor::new();
-
-    //     ex.spawn(async {
-    //         sleep(Duration::from_millis(40)).await;
-    //         // this should not get its payload back
-    //         assert!(event_q.signal(&0, ()).is_none());
-    //         sleep(Duration::from_millis(40)).await;
-    //         // this should get its payload back
-    //         assert!(event_q.signal(&0, ()).is_some());
-    //     })
-    //     .detach();
-    //     // this should timeout
-    //     ex.spawn(async {
-    //         assert!(event_q.timeout(0, Duration::from_millis(20)).await.is_err());
-    //     })
-    //     .detach();
-    //     // this should work
-    //     ex.spawn(async { assert!(event_q.timeout(0, Duration::from_millis(60)).await.is_ok()) })
-    //         .detach();
-
-    //     loop {
-    //         ex.try_tick();
-    //         if ex.is_empty() {
-    //             break;
-    //         }
-    //     }
-    // }
+        spawn(async move {
+            sleep(Duration::from_millis(40)).await;
+            // this should not get its payload back
+            assert!(event_q1.signal(&0, ()).is_none());
+            sleep(Duration::from_millis(40)).await;
+            // this should get its payload back
+            assert!(event_q1.signal(&0, ()).is_some());
+        });
+        // this should timeout
+        spawn(async move {
+            assert!(event_q2
+                .timeout(0, Duration::from_millis(20))
+                .await
+                .is_err());
+        });
+        // this should work
+        spawn(async move { assert!(event_q3.timeout(0, Duration::from_millis(60)).await.is_ok()) });
+    }
 }

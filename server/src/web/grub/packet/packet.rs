@@ -1,14 +1,15 @@
 use std::{mem, time};
 
-use proto::prelude::packets as PacketType;
-use proto::prelude::{self as protocal, host, server};
-use smol::future::{or, Or};
-use smol::{net, Timer};
-
 use super::event::EventHook;
 use super::hashvec::HashVec;
 use super::wol;
-
+use async_std::future::timeout;
+use async_std::net;
+use async_std::prelude::FutureExt;
+use async_std::task::sleep;
+use futures_lite::future::race;
+use proto::prelude::packets as PacketType;
+use proto::prelude::{self as protocal, host, server};
 type MacAddress = [u8; 6];
 
 type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;
@@ -145,10 +146,10 @@ impl<'a> Packet<'a> {
         Ok(())
     }
     pub async fn wol_reconnect(&mut self, mac_address: &[u8; 6]) -> Result<(), Error> {
-        or(self.wait_reconnect(), async {
+        race(self.wait_reconnect(), async {
             let magic_packet = wol::MagicPacket::new(mac_address);
             loop {
-                Timer::after(time::Duration::from_secs(1)).await;
+                sleep(time::Duration::from_secs(1)).await;
                 magic_packet.send();
             }
         })
@@ -182,14 +183,9 @@ impl<'a> Packet<'a> {
         packet_type: ReceivePacketType,
     ) -> Result<host::Packet, Error> {
         let mut package = None;
-        or(
-            async {
-                package = Some(self.read(packet_type).await);
-            },
-            async {
-                Timer::after(time::Duration::from_secs(TIMEOUTSHORT));
-            },
-        )
+        timeout(time::Duration::from_secs(TIMEOUTSHORT), async {
+            package = Some(self.read(packet_type).await);
+        })
         .await;
         match package {
             Some(x) => Ok(x?),

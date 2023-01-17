@@ -1,6 +1,6 @@
+use async_std::io::{ReadExt, WriteExt};
+use async_std::net;
 use serde::{Deserialize, Serialize};
-use smol::io::{AsyncReadExt, AsyncWriteExt};
-use smol::net;
 use std::marker::PhantomData;
 use std::vec;
 use thiserror;
@@ -19,7 +19,7 @@ pub enum Error {
     #[error("bincode")]
     BincodeError(#[from] bincode::Error),
     #[error("Error from smol")]
-    SmolIOError(#[from] smol::io::Error),
+    SmolIOError(#[from] async_std::io::Error),
     #[error("too large entity")]
     TooLargeEntity,
 }
@@ -28,8 +28,8 @@ pub struct Connection<UP, DP, U, D>
 where
     UP: Serialize,
     DP: for<'a> Deserialize<'a>,
-    U: AsyncWriteExt + Unpin,
-    D: AsyncReadExt + Unpin,
+    U: WriteExt + Unpin,
+    D: ReadExt + Unpin,
 {
     upstream: U,
     downstream: D,
@@ -41,8 +41,8 @@ impl<UP, DP, U, D> Connection<UP, DP, U, D>
 where
     UP: Serialize,
     DP: for<'a> Deserialize<'a>,
-    U: AsyncWriteExt + Unpin,
-    D: AsyncReadExt + Unpin,
+    U: WriteExt + Unpin,
+    D: ReadExt + Unpin,
 {
     pub async fn send(&mut self, packet: UP) -> Result<(), Error> {
         let binary = bincode::serialize(&packet)?;

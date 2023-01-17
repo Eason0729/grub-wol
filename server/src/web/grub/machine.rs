@@ -4,12 +4,12 @@ use super::packet::{self, Packet, Packets};
 
 use super::bootgraph::{self, *};
 
+use async_std::net;
 use indexmap::IndexMap;
 use log::warn;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use smol::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -77,12 +77,12 @@ pub struct Server<'a> {
     machines: RwLock<IndexMap<MacAddress, Machine<'a>>>,
     packets: Packets,
     unknown_packet: RwLock<RingBuffer<Packet<'a>, 4>>,
-    listener: TcpListener,
+    listener: net::TcpListener,
 }
 
 impl<'a> Server<'a> {
     pub async fn new(socket: SocketAddr) -> Result<Server<'a>, Error> {
-        let listener = TcpListener::bind(socket).await?;
+        let listener = net::TcpListener::bind(socket).await?;
         Ok(Self {
             machines: Default::default(),
             packets: Default::default(),
@@ -106,7 +106,7 @@ impl<'a> Server<'a> {
         };
         Ok(())
     }
-    async fn connect_tcp(&'a self, stream: TcpStream) -> Result<(), Error> {
+    async fn connect_tcp(&'a self, stream: net::TcpStream) -> Result<(), Error> {
         let packet = match self.packets.connect(stream).await? {
             Some(x) => x,
             None => {
@@ -213,21 +213,21 @@ impl<'a> Server<'a> {
             None => Ok(serde_json::to_vec::<Option<api::OsList>>(&None).unwrap()),
         }
     }
-    pub async fn off(&self, mac_address: &MacAddress)-> Result<bool,Error>{
+    pub async fn off(&self, mac_address: &MacAddress) -> Result<bool, Error> {
         match self.machines.write().unwrap().get_mut(mac_address) {
             Some(machine) => {
                 machine.off().await?;
                 Ok(true)
-            },
+            }
             None => Ok(false),
         }
     }
-    pub async fn boot(&self, mac_address: &MacAddress,os:bootgraph::OSId)-> Result<bool,Error>{
+    pub async fn boot(&self, mac_address: &MacAddress, os: bootgraph::OSId) -> Result<bool, Error> {
         match self.machines.write().unwrap().get_mut(mac_address) {
             Some(machine) => {
                 machine.boot(os).await?;
                 Ok(true)
-            },
+            }
             None => Ok(false),
         }
     }
@@ -272,7 +272,7 @@ impl<'a> Machine<'a> {
         let id_counter = 1;
         let mut boot_graph = IntBootGraph::new(packet, id_counter).await?;
 
-        boot_graph.tick().await?;
+        boot_graph.try_yield().await?;
 
         let (boot_graph, packet, _) = boot_graph.disassemble();
 

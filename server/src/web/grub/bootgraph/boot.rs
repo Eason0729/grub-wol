@@ -246,7 +246,7 @@ impl<'a> IntBootGraph<'a> {
     fn is_finish(&self) -> bool {
         self.unknown_os.is_empty()
     }
-    pub async fn tick(&mut self) -> Result<(), Error> {
+    pub async fn try_yield(&mut self) -> Result<(), Error> {
         let shutdown_node = self
             .graph
             .find_node(&OSState::Down)
@@ -289,7 +289,9 @@ impl<'a> IntBootGraph<'a> {
                 self.unknown_os.push(ios);
             }
         }
-        todo!()
+        // todo!()
+        // TODO: idk what's wrong
+        Ok(())
     }
 }
 

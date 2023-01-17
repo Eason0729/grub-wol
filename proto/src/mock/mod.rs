@@ -1,9 +1,10 @@
 // edit from https://hackmd.io/@lbernick/SkgO7bCMw
-use smol::prelude::{AsyncRead, AsyncWrite};
+use async_std::io::{ReadExt, WriteExt};
+use async_std::io::{Read, Write};
 use std::io;
 use std::{
     collections::VecDeque,
-    io::{Read, Write},
+    
     pin::Pin,
     sync::{Arc, Mutex},
     task::{self, Poll},
@@ -14,7 +15,7 @@ pub struct MockTcpStream {
     reader: Option<Arc<Mutex<VecDeque<u8>>>>,
 }
 
-impl AsyncWrite for MockTcpStream {
+impl Write for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -23,7 +24,7 @@ impl AsyncWrite for MockTcpStream {
         match &self.writer {
             Some(writer) => {
                 let mut writer = writer.lock().unwrap();
-                let size = writer.write(buf).unwrap();
+                let size = io::Write::write(&mut *writer, buf).unwrap();
                 Poll::Ready(Ok(size))
             }
             None => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),
@@ -40,7 +41,7 @@ impl AsyncWrite for MockTcpStream {
     }
 }
 
-impl AsyncRead for MockTcpStream {
+impl Read for MockTcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -49,7 +50,7 @@ impl AsyncRead for MockTcpStream {
         match &self.reader {
             Some(reader) => {
                 let mut reader = reader.lock().unwrap();
-                let size = reader.read(buf).unwrap();
+                let size = io::Read::read(&mut *reader, buf).unwrap();
                 Poll::Ready(Ok(size))
             }
             None => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),

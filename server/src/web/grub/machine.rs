@@ -1,4 +1,4 @@
-use super::api;
+use web;
 // TODO: fix mutability(RefCell maybe!)
 use super::packet::{self, Packet, Packets};
 
@@ -7,15 +7,14 @@ use super::bootgraph::{self, *};
 use async_std::io::ReadExt;
 use async_std::net;
 use indexmap::IndexMap;
-use log::warn;
+use log::{info, warn};
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::sync::{RwLock};
 use std::{collections::*, io};
 
 type MacAddress = [u8; 6];
@@ -75,23 +74,26 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize,Default)]
+#[derive(Serialize, Deserialize, Default)]
 struct ServerSave<'a> {
-    machines:&'a IndexMap<MacAddress, Machine<'a>>,
+    machines: IndexMap<MacAddress, Machine<'a>>,
 }
 
 impl<'a> ServerSave<'a> {
-    fn new(path: &Path)->Result<Self, Error>{
-        Ok(if path.exists()&&path.is_file() {
+    fn new(path: &Path) -> Result<Self, Error> {
+        Ok(if path.exists() && path.is_file() {
             let mut file = File::open(path)?;
-            
+
             let buf = &mut Vec::new();
             file.read_to_end(buf)?;
-    
+
             bincode::deserialize_from(file)?
-        }else{
+        } else {
             Default::default()
         })
+    }
+    fn save(server: &Server, path: &Path) {
+        let map = (&*server.machines.read().unwrap());
     }
 }
 
@@ -113,42 +115,37 @@ impl<'a> Server<'a> {
         })
     }
     pub async fn save(&self, path: &Path) -> Result<(), Error> {
-        let save=&*self.machines.read().unwrap();
-        // unsafe{
-        //     let save=ServerSave{
-        //         machines:Box::from_raw(raw)
-        //     };
-    
-        // }
-
-
-
+        let save = (&*self.machines.read().unwrap()).clone();
         todo!()
     }
-    pub async fn load(socket: SocketAddr, path: &Path) -> Result<Server<'a>, Error> {
-        // let save=if path.exists()&&path.is_file() {
-        //     let mut file = File::open(path)?;
-            
-        //     let buf = &mut Vec::new();
-        //     file.read_to_end(buf)?;
-    
-        //     bincode::deserialize_from::<_,ServerSave>(file)?
-        // }else{
-        //     Default::default()
-        // };
+    pub async fn load(path: &Path) -> Result<Server<'a>, Error> {
+        let bind_host = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+        let socket = net::SocketAddr::new(bind_host, protocal::SERVER_PORT);
 
-        // let mut server = Server::new(socket).await?;
-        // server.machines = *save.machines;
+        let save = if path.exists() && path.is_file() {
+            info!("load server from {}", path.to_string_lossy());
+            let mut file = File::open(path)?;
 
-        // Ok(server)
-        todo!()
+            let buf = &mut Vec::new();
+            file.read_to_end(buf)?;
+
+            bincode::deserialize_from::<_, ServerSave>(file)?
+        } else {
+            info!("initialize server with no machine connected");
+            Default::default()
+        };
+
+        let mut server = Server::new(socket).await?;
+        server.machines = RwLock::new(save.machines);
+
+        Ok(server)
     }
     pub async fn tick(&'a self) -> Result<(), Error> {
         let (stream, _) = self.listener.accept().await?;
         match self.connect_tcp(stream).await {
             Ok(_) => {}
             Err(err) => {
-                warn!("grub-wol protocal server error at: {:?}", err);
+                warn!("{:?}", err);
             }
         };
         Ok(())
@@ -162,7 +159,7 @@ impl<'a> Server<'a> {
         };
         self.connect_packet(packet).await
     }
-    async fn connect_packet(&'a self, mut packet: Packet<'a>) -> Result<(), Error> {
+    async fn connect_packet(&'a self, packet: Packet<'a>) -> Result<(), Error> {
         let mac_address = packet.get_mac()?;
         if let Some(machine) = self.machines.write().unwrap().get_mut(&mac_address) {
             machine.connect(packet);
@@ -193,38 +190,36 @@ impl<'a> Server<'a> {
             Ok(false)
         }
     }
-    pub fn list_machine(&self) -> Result<Vec<u8>, Error> {
+    pub fn list_machine(&self) -> Result<web::MachineList, Error> {
         let mut machines = Vec::new();
 
         let machines_src = self.machines.read().unwrap();
         for (mac_address, machine) in machines_src.iter() {
             let current_os = machine.current_os()?.map(|os| os.id);
-            machines.push(api::MachineInfo {
+            machines.push(web::MachineInfo {
                 state: match current_os {
-                    Some(os) => api::MachineState::Up(os),
-                    None => api::MachineState::Down,
+                    Some(os) => web::MachineState::Up(os),
+                    None => web::MachineState::Down,
                 },
-                mac_address,
+                mac_address:mac_address.clone(),
             });
         }
-        // TODO: fix this
-        // let unknown_src = self.unknown_packet.write().unwrap();
-        // for packet in unknown_src.iter() {
-        //     let mac_address=if let Ok(mac)=packet.get_mac(){
-        //         mac
-        //     }else{
-        //         continue;
-        //     };
-        //     machines.push(api::MachineInfo {
-        //         mac_address: &mac_address.to_owned(),
-        //         state:api::MachineState::Uninited
-        //     });
-        // }
+        let unknown_src = self.unknown_packet.write().unwrap();
+        for packet in unknown_src.iter() {
+            let mac_address=if let Ok(mac)=packet.get_mac(){
+                mac
+            }else{
+                continue;
+            };
+            machines.push(web::MachineInfo {
+                mac_address: mac_address.clone(),
+                state:web::MachineState::Uninited
+            });
+        }
 
-        let list = api::MachineList { machines };
-        Ok(serde_json::to_vec(&list).unwrap())
+        Ok(web::MachineList { machines })
     }
-    pub fn find_machine(&self, mac_address: &MacAddress) -> Result<Vec<u8>, Error> {
+    pub fn find_machine(&self, mac_address: &MacAddress) -> Result<Option<web::MachineInfo>, Error> {
         match self.machines.read().unwrap().get(mac_address) {
             Some(machine) => {
                 let current_os = match machine.current_os()? {
@@ -232,38 +227,37 @@ impl<'a> Server<'a> {
                     None => None,
                 };
 
-                let machine_info = Some(api::MachineInfo {
-                    mac_address,
+                Ok(Some(web::MachineInfo {
+                    mac_address: mac_address.clone(),
                     state: match current_os {
-                        Some(os) => api::MachineState::Up(os),
-                        None => api::MachineState::Down,
+                        Some(os) => web::MachineState::Up(os),
+                        None => web::MachineState::Down,
                     },
-                });
-                Ok(serde_json::to_vec(&machine_info).unwrap())
+                }))
             }
-            None => Ok(serde_json::to_vec::<Option<api::MachineInfo>>(&None).unwrap()),
+            None => Ok(None),
         }
     }
-    pub fn list_os(&self, mac_address: &MacAddress) -> Result<Vec<u8>, Error> {
+    pub fn list_os(&self, mac_address: &MacAddress) -> Result<Option<web::OsList>, Error> {
         match self.machines.read().unwrap().get(mac_address) {
             Some(machine) => {
                 let oss = machine
                     .list_os()
-                    .map(|os| api::OsInfo {
-                        display_name: &os.display_name,
+                    .map(|os| web::OsInfo {
+                        display_name: os.display_name.clone(),
                         id: os.id,
                     })
                     .collect();
-                let list = api::OsList { oss };
-                Ok(serde_json::to_vec(&list).unwrap())
+                Ok(Some(web::OsList { oss }))
             }
-            None => Ok(serde_json::to_vec::<Option<api::OsList>>(&None).unwrap()),
+            None => Ok(None),
         }
     }
     pub async fn off(&self, mac_address: &MacAddress) -> Result<bool, Error> {
         match self.machines.write().unwrap().get_mut(mac_address) {
             Some(machine) => {
                 machine.off().await?;
+                info!("shutdown machine of 0x{:x?}", mac_address);
                 Ok(true)
             }
             None => Ok(false),
@@ -272,6 +266,7 @@ impl<'a> Server<'a> {
     pub async fn boot(&self, mac_address: &MacAddress, os: bootgraph::OSId) -> Result<bool, Error> {
         match self.machines.write().unwrap().get_mut(mac_address) {
             Some(machine) => {
+                info!("booting machine of 0x{:x?} to os(uid):{}", mac_address, os);
                 machine.boot(os).await?;
                 Ok(true)
             }

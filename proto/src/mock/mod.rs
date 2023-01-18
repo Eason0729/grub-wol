@@ -1,10 +1,9 @@
 // edit from https://hackmd.io/@lbernick/SkgO7bCMw
-use async_std::io::{ReadExt, WriteExt};
 use async_std::io::{Read, Write};
+use async_std::io::{ReadExt, WriteExt};
 use std::io;
 use std::{
     collections::VecDeque,
-    
     pin::Pin,
     sync::{Arc, Mutex},
     task::{self, Poll},

@@ -8,6 +8,7 @@ use thiserror;
 use crate::mock::MockTcpStream;
 
 type PrefixType = crate::constant::PacketPrefix;
+// TODO: use bincode option to limit max bytes
 const MAXSIZE: PrefixType = 1048576;
 
 lazy_static! {

@@ -1,4 +1,5 @@
 use std::pin::Pin;
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 use std::{mem, time};
 
@@ -8,9 +9,6 @@ use super::wol;
 use async_std::future::timeout;
 use async_std::net;
 use async_std::prelude::FutureExt;
-use async_std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use async_std::task::sleep;
-use futures_lite::future::race;
 use futures_lite::Future;
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
@@ -102,87 +100,60 @@ struct Packet<'a> {
 }
 
 impl<'a> Packet<'a> {
-    async fn read_packet(&self) -> Status<RwLockReadGuard<Option<RawPacket>>> {
-        if let Some(raw)=timeout( Duration::from_millis(TIMEOUTBUSY),self.raw.read()).await.ok(){
-            match &*raw {
-                Some(_) => Status::Success(raw),
-                None => Status::NotFound,
-            }
-        }else{
-            Status::Busy
+    fn read_packet(&self) -> Result<RwLockReadGuard<Option<RawPacket>>,Error> {
+        let raw=self.raw.read().unwrap();
+        match &*raw {
+            Some(_) => Ok(raw),
+            None => Err(Error::ClientOffline),
         }
     }
-    async fn write_packet(&self) -> Status<RwLockWriteGuard<Option<RawPacket>>> {
-        if let Some(raw)=timeout( Duration::from_millis(TIMEOUTBUSY),self.raw.write()).await.ok(){
-            match &*raw {
-                Some(_) => Status::Success(raw),
-                None => Status::NotFound,
-            }
-        }else{
-            Status::Busy
+    fn write_packet(&self) -> Result<RwLockWriteGuard<Option<RawPacket>>,Error> {
+        let raw=self.raw.write().unwrap();
+        match &*raw {
+            Some(_) => Ok(raw),
+            None => Err(Error::ClientOffline),
         }
     }
-    pub async fn get_handshake_uid(&self) -> Status<protocal::ID> {
-        self.read_packet()
-            .await
-            .map(|reader| reader.as_ref().unwrap().uid)
+    pub fn get_handshake_uid(&self) -> Result<protocal::ID,Error> {
+        Ok(self.read_packet()?.as_ref().unwrap().uid)
     }
     pub fn get_mac(&self) -> [u8; 6] {
         self.info.mac_address
     }
-    async fn send(&self, package: server::Packet) -> Result<Status<()>, Error> {
-        let raw = self.raw.try_write();
-        Ok(match raw {
-            Some(mut packet) => match &mut *packet {
-                Some(packet) => {
-                    packet
-                        .conn
-                        .send(package)
-                        .await
-                        .map_err(|_| Error::ClientDisconnect)?;
-                    Status::Success(())
-                }
-                None => Status::NotFound,
-            },
-            None => Status::Busy,
-        })
+    async fn send(&self, package: server::Packet) -> Result<(),Error> {
+        let mut packet=self.write_packet()?;
+        let packet=packet.as_mut().unwrap();
+        packet.conn.send(package).await?;
+        Ok(())
     }
-    async fn read(&self, packet_type: ReceivePacketType) -> Result<Status<host::Packet>, Error> {
-        let mut unused = self.unused_receive.lock().await;
-        if let Some(packet) = unused.pop(&packet_type) {
-            return Ok(Status::Success(packet));
-        } else {
-            let raw = self.raw.try_write();
-            Ok(match raw {
-                Some(mut packet) => match &*packet {
-                    Some(_) => Status::Success({
-                        loop {
-                            let packet = packet
-                                .as_mut()
-                                .unwrap()
-                                .conn
-                                .read()
-                                .await
-                                .map_err(|_| Error::ClientDisconnect)?;
-                            let receive_type = ReceivePacketType::from_packet(&packet);
+    async fn read(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
+        let mut packet=self.write_packet()?;
+        let packet=packet.as_mut().unwrap();
 
-                            if receive_type == packet_type {
-                                break packet;
-                            } else {
-                                unused.push(receive_type, packet);
-                            }
-                        }
-                    }),
-                    None => Status::NotFound,
-                },
-                None => Status::Busy,
-            })
+        let mut unused = self.unused_receive.lock().unwrap();
+        if let Some(packet) = unused.pop(&packet_type) {
+            return Ok(packet);
+        } else {
+            loop {
+                let package = packet
+                    .conn
+                    .read()
+                    .await
+                    .map_err(|_| Error::ClientDisconnect)?;
+                let receive_type = ReceivePacketType::from_packet(&package);
+
+                if receive_type == packet_type {
+                    return Ok(package);
+                } else {
+                    unused.push(receive_type, package);
+                }
+            }
         }
     }
     async fn read_timeout(
-        &mut self,
+        &self,
         packet_type: ReceivePacketType,
-    ) -> Result<Status<host::Packet>, Error> {
+    ) -> Result<host::Packet, Error> {
         timeout(
             time::Duration::from_secs(TIMEOUTSHORT),
             self.read(packet_type),
@@ -190,119 +161,78 @@ impl<'a> Packet<'a> {
         .await
         .map_err(|_| Error::Timeout)?
     }
-    // pub async fn issue_id(&self, id: protocal::ID) -> Result<(), Error> {
-    //     self.send(server::Packet::InitId(id)).await?;
-    //     self.read_timeout(ReceivePacketType::InitId).await?;
-    //     self.fake_handshake_uid(id)?;
-    //     Ok(())
-    // }
-    // fn fake_handshake_uid(&self, id: protocal::ID) -> Result<(), Error> {
-    //     let raw = ok_or_ref!(self.raw, Error::ClientOffline);
-    //     raw.uid = id;
-    //     Ok(())
-    // }
-    // pub async fn wol_reconnect(&self, mac_address: &[u8; 6]) -> Result<(), Error> {
-    //     race(self.wait_reconnect(), async {
-    //         let magic_packet = wol::MagicPacket::new(mac_address);
-    //         loop {
-    //             sleep(time::Duration::from_secs(1)).await;
-    //             magic_packet.send();
-    //         }
-    //     })
-    //     .await
-    // }
-    // pub async fn wait_reconnect(&self) -> Result<(), Error> {
-    //     let mut raw = None;
-    //     mem::swap(&mut raw, &mut self.raw);
-    //     let raw = raw.unwrap();
+    pub async fn issue_id(&self, id: protocal::ID) -> Result<(), Error> {
+        self.send(server::Packet::InitId(id)).await?;
+        self.read_timeout(ReceivePacketType::InitId).await?;
+        self.fake_uid(id)?;
+        Ok(())
+    }
+    fn fake_uid(&self, id: protocal::ID) -> Result<(), Error> {
+        let mut packet=self.write_packet()?;
+        let packet=packet.as_mut().unwrap();
+        packet.uid = id;
+        Ok(())
+    }
+    pub async fn wol_reconnect(&self, mac_address: &[u8; 6]) -> Result<(), Error> {
+        timeout(
+            time::Duration::from_secs(TIMEOUTSHORT),
+            self.wait_reconnect(),
+        )
+        .await
+        .map_err(|_| Error::Timeout)?
+    }
+    pub async fn wait_reconnect(&self) -> Result<(), Error> {
+        let mut packet=self.write_packet()?;
+        let packet=&mut *packet;
+        *packet=None;
 
-    //     let event_hook = &self.manager.event_hook;
+        let event_hook = &self.manager.event_hook;
 
-    //     let raw_packet = event_hook
-    //         .timeout(raw.mac_address, time::Duration::from_secs(TIMEOUT))
-    //         .await
-    //         .map_err(|_| Error::Timeout)?;
+        let new_packet = event_hook
+            .timeout(self.info.mac_address, time::Duration::from_secs(TIMEOUT))
+            .await
+            .map_err(|_| Error::Timeout)?;
 
-    //     self.raw = Some(raw_packet);
-    //     Ok(())
-    // }
-    // async fn send(&self, packet: server::Packet) -> Result<(), Error> {
-    //     ok_or_ref!(self.raw, Error::ClientOffline)
-    //         .conn
-    //         .send(packet)
-    //         .await
-    //         .map_err(|_| Error::ClientDisconnect)?;
-    //     Ok(())
-    // }
-
-    // async fn read(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
-    //     if let Some(packet) = self.unused_receive.pop(&packet_type) {
-    //         Ok(packet)
-    //     } else {
-    //         loop {
-    //             let packet = ok_or_ref!(self.raw, Error::ClientOffline)
-    //                 .conn
-    //                 .read()
-    //                 .await
-    //                 .map_err(|_| Error::ClientDisconnect)?;
-    //             let receive_type = ReceivePacketType::from_packet(&packet);
-
-    //             if receive_type == packet_type {
-    //                 return Ok(packet);
-    //             } else {
-    //                 self.unused_receive.push(receive_type, packet);
-    //             }
-    //         }
-    //     }
-    // }
-    // pub async fn shutdown(&self) -> Result<(), Error> {
-    //     self.send(server::Packet::ShutDown).await?;
-    //     self.read_timeout(ReceivePacketType::ShutDown).await?;
-    //     Ok(())
-    // }
-    // pub async fn grub_query(&self) -> Result<Vec<host::GrubInfo>, Error> {
-    //     // TODO: grub-probe is expect to keep running for longer time, add extra waiting time
-    //     self.send(server::Packet::GrubQuery).await?;
-    //     if let host::Packet::GrubQuery(query) =
-    //         self.read_timeout(ReceivePacketType::GrubQuery).await?
-    //     {
-    //         Ok(query)
-    //     } else {
-    //         Err(Error::UnknownProtocal)
-    //     }
-    // }
-    // pub async fn boot_into(&self, grub_sec: protocal::Integer) -> Result<(), Error> {
-    //     self.send(server::Packet::Reboot(grub_sec)).await?;
-    //     self.read_timeout(ReceivePacketType::Reboot).await?;
-    //     Ok(())
-    // }
-
-    // pub async fn ping(&self) -> Result<(), Error> {
-    //     self.send(server::Packet::Ping).await?;
-    //     if let host::Packet::Ping(id) = self.read_timeout(ReceivePacketType::Ping).await? {
-    //         if self.raw.as_ref().ok_or(Error::ClientOffline)?.uid != id {
-    //             self.raw = None;
-    //             Err(Error::ClientOffline)
-    //         } else {
-    //             Ok(())
-    //         }
-    //     } else {
-    //         Err(Error::UnknownProtocal)
-    //     }
-    // }
-    // pub async fn os_query(&self) -> Result<host::OSInfo, Error> {
-    //     self.send(server::Packet::OSQuery).await?;
-    //     if let host::Packet::OSQuery(query) = self.read_timeout(ReceivePacketType::OSQuery).await? {
-    //         Ok(query)
-    //     } else {
-    //         Err(Error::UnknownProtocal)
-    //     }
-    // }
+        let mut packet=self.write_packet()?;
+        *packet=Some(new_packet);
+        
+        Ok(())
+    }
+    pub async fn shutdown(&self) -> Result<(), Error> {
+        self.send(server::Packet::ShutDown).await?;
+        self.read_timeout(ReceivePacketType::ShutDown).await?;
+        Ok(())
+    }
+    pub async fn grub_query(&self) -> Result<Vec<host::GrubInfo>, Error> {
+        // TODO: grub-probe is expect to keep running for longer time, add extra waiting time
+        self.send(server::Packet::GrubQuery).await?;
+        if let host::Packet::GrubQuery(query) =
+            self.read_timeout(ReceivePacketType::GrubQuery).await?
+        {
+            Ok(query)
+        } else {
+            Err(Error::UnknownProtocal)
+        }
+    }
+    pub async fn boot_into(&self, grub_sec: protocal::Integer) -> Result<(), Error> {
+        self.send(server::Packet::Reboot(grub_sec)).await?;
+        self.read_timeout(ReceivePacketType::Reboot).await?;
+        self.wol_reconnect(&self.get_mac()).await?;
+        Ok(())
+    }
+    pub async fn os_query(&self) -> Result<host::OSInfo, Error> {
+        self.send(server::Packet::OSQuery).await?;
+        if let host::Packet::OSQuery(query) = self.read_timeout(ReceivePacketType::OSQuery).await? {
+            Ok(query)
+        } else {
+            Err(Error::UnknownProtocal)
+        }
+    }
 }
 
 #[derive(Default)]
 struct Packets {
-    event_hook: EventHook<MacAddress, ([u8; 6], RawPacket)>,
+    event_hook: EventHook<MacAddress, RawPacket>,
 }
 
 impl Packets {
@@ -314,9 +244,9 @@ impl Packets {
         let (mac_address, raw_packet) = RawPacket::from_conn_handshake(conn).await?;
         match self
             .event_hook
-            .signal(&mac_address, (mac_address, raw_packet))
+            .signal(&mac_address, raw_packet)
         {
-            Some((mac_address, raw_packet)) => Ok(Some(Packet {
+            Some( raw_packet) => Ok(Some(Packet {
                 unused_receive: Mutex::new(HashVec::default()),
                 manager: self,
                 raw: RwLock::new(Some(raw_packet)),
@@ -324,35 +254,6 @@ impl Packets {
             })),
             None => Ok(None),
         }
-    }
-}
-
-pub enum Status<R> {
-    Busy,
-    Success(R),
-    NotFound,
-}
-
-impl<R> Status<R> {
-    fn map<T, F>(self, f: F) -> Status<T>
-    where
-        F: Fn(R) -> T,
-    {
-        match self {
-            Status::Busy => Status::Busy,
-            Status::Success(x) => Status::Success(f(x)),
-            Status::NotFound => Status::NotFound,
-        }
-    }
-    async fn async_map<T, E, F>(self, f: F) -> Result<Status<T>, E>
-    where
-        F: Fn(R) -> Pin<Box<dyn Future<Output = Result<T, E>>>>,
-    {
-        Ok(match self {
-            Status::Busy => Status::Busy,
-            Status::Success(x) => Status::Success(f(x).await?),
-            Status::NotFound => Status::NotFound,
-        })
     }
 }
 

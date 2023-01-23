@@ -11,7 +11,7 @@ use serde::Serialize;
 use web;
 
 #[async_trait]
-trait Convert<K>
+pub trait Convert<K>
 where
     K: Serialize,
 {
@@ -92,10 +92,7 @@ impl<'a, 'b> Convert<web::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
         }
 
         let unknown_src = server.unknown_packet.lock().await;
-        let unknown_mac: Vec<[u8; 6]> = unknown_src
-            .iter()
-            .map(|p| p.get_mac())
-            .collect();
+        let unknown_mac: Vec<[u8; 6]> = unknown_src.iter().map(|p| p.get_mac()).collect();
         unknown_mac.iter().for_each(|mac_address| {
             machines.push(web::MachineInfoInner {
                 mac_address,
@@ -120,18 +117,18 @@ impl<'a> Convert<web::BootRes> for BootAdaptor<'a> {
             web::OSState::Up(x) => bootgraph::OSState::Up(x),
         };
 
-        if self.machine.is_none(){
+        if self.machine.is_none() {
             return Ok(bincode::serialize(&web::BootRes::NotFound).unwrap());
         }
-        let machine=self.machine.unwrap();
+        let machine = self.machine.unwrap();
         let mut packet = machine.packet.lock().await;
-        let mut out_packet=None;
-        mem::swap(&mut out_packet,&mut *packet);
+        let mut out_packet = None;
+        mem::swap(&mut out_packet, &mut *packet);
         drop(packet);
 
-        match out_packet{
-            Some(mut packet)=>{
-                let mac = packet.get_mac(); 
+        match out_packet {
+            Some(mut packet) => {
+                let mac = packet.get_mac();
                 let raw = match machine.boot_graph.boot_into(os, &mut packet, mac).await {
                     Ok(_) => web::BootRes::Success,
                     Err(e) => {
@@ -140,11 +137,39 @@ impl<'a> Convert<web::BootRes> for BootAdaptor<'a> {
                     }
                 };
                 Ok(bincode::serialize(&raw).unwrap())
-            },
-            None=>{
-                Ok(bincode::serialize(&web::BootRes::NotFound).unwrap())
             }
+            None => Ok(bincode::serialize(&web::BootRes::NotFound).unwrap()),
         }
+    }
+}
+
+pub struct NewMachineAdaptor<'a, 'b> {
+    pub(super) display_name: String,
+    pub(super) mac_address: [u8; 6],
+    pub(super) server: &'a Server<'b>,
+}
+
+#[async_trait]
+impl<'a, 'b> Convert<web::NewMachineRes> for NewMachineAdaptor<'a, 'b>
+where
+    'a: 'b,
+{
+    async fn convert(self) -> Result<Vec<u8>, Error> {
+        Ok(bincode::serialize(&match self
+            .server
+            .new_machine(self.mac_address, self.display_name)
+            .await
+        {
+            Ok(x) => {
+                if x {
+                    web::NewMachineRes::Success
+                } else {
+                    web::NewMachineRes::NotFound
+                }
+            }
+            Err(_) => web::NewMachineRes::Fail,
+        })
+        .unwrap())
     }
 }
 // new machine

@@ -1,3 +1,4 @@
+use super::adaptor;
 use async_std::sync::Mutex;
 use web;
 // TODO: fix mutability(RefCell maybe!)
@@ -121,7 +122,7 @@ impl<'a> Server<'a> {
     async fn connect_packet(&self, packet: Packet<'a>) -> Result<(), Error> {
         let mac_address = packet.get_mac();
         if let Some(machine) = self.machines.lock().await.get_mut(&mac_address) {
-            machine.connect(packet);
+            machine.connect(packet).await;
         } else {
             let mut unknown_packet = self.unknown_packet.lock().await;
             unknown_packet.push(packet);
@@ -135,7 +136,7 @@ impl<'a> Server<'a> {
     ) -> Result<bool, Error> {
         let mut unknown_packet = self.unknown_packet.lock().await;
 
-        let packet = unknown_packet.pop(|item| item.get_mac() ==mac );
+        let packet = unknown_packet.pop(|item| item.get_mac() == mac);
 
         if let Some(packet) = packet {
             let (machine, packet) = Machine::new(packet, display_name).await?;
@@ -144,6 +145,50 @@ impl<'a> Server<'a> {
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+    async fn get_machine(&'a self, mac_address: &'a [u8; 6]) -> Option<Arc<Machine<'a>>> {
+        self.machines
+            .lock()
+            .await
+            .get(mac_address)
+            .map(|a| a.clone())
+    }
+    pub async fn list_os(&'a self, mac_address: &'a [u8; 6]) -> adaptor::OsListAdaptor {
+        adaptor::OsListAdaptor {
+            machine: self.get_machine(mac_address).await,
+        }
+    }
+    pub async fn info_machine(
+        &'a self,
+        mac_address: &'a [u8; 6],
+    ) -> adaptor::MachineInfoAdaptor<'a> {
+        adaptor::MachineInfoAdaptor {
+            machine: self.get_machine(mac_address).await,
+        }
+    }
+    pub fn list_machine(&'a self) -> adaptor::MachineListAdaptor<'a, 'a> {
+        adaptor::MachineListAdaptor { server: self }
+    }
+    pub async fn boot(
+        &'a self,
+        os: web::OSState,
+        mac_address: &'a [u8; 6],
+    ) -> adaptor::BootAdaptor {
+        adaptor::BootAdaptor {
+            os,
+            machine: self.get_machine(mac_address).await,
+        }
+    }
+    pub async fn init_machine(
+        &'a self,
+        mac_address: [u8; 6],
+        display_name: String,
+    ) -> adaptor::NewMachineAdaptor<'a, 'a> {
+        adaptor::NewMachineAdaptor {
+            display_name,
+            mac_address,
+            server: self,
         }
     }
 }

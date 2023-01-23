@@ -56,22 +56,23 @@ pub struct OsList<'a> {
     pub oss: Vec<OsInfoInner<'a>>,
 }
 
-// get detailed info of an os
-// POST /api/get/os
-// cts
-#[derive(Deserialize, Serialize)]
-pub struct OsInfoReq{
-    pub mac_address: [u8; 6],
-    pub os:ID
-}
-// stc
-pub type OsInfo<'a>=Option<OsInfoInner<'a>>;
+// // get detailed info of an os
+// // POST /api/get/os
+// // cts
+// #[derive(Deserialize, Serialize)]
+// pub struct OsInfoReq{
+//     pub mac_address: [u8; 6],
+//     pub os:ID
+// }
+// // stc
+// pub type OsInfo<'a>=Option<OsInfoInner<'a>>;
 
 // get detailed info of an os
 // POST /api/op/new
 // cts
 #[derive(Deserialize, Serialize)]
-pub struct NewMachineReq{
+pub struct NewMachineReq<'a>{
+    pub display_name:&'a str,
     pub mac_address: [u8; 6],
 }
 // stc

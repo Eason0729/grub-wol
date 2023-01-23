@@ -8,7 +8,7 @@ use super::wol;
 use async_std::future::timeout;
 use async_std::net;
 use async_std::prelude::FutureExt;
-use async_std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, Mutex};
+use async_std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use futures_lite::Future;
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
@@ -18,7 +18,7 @@ type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Pack
 
 const TIMEOUT: u64 = 180;
 const TIMEOUTSHORT: u64 = 5;
-const TIMEOUTBUSY: u64 = 400;// ms
+const TIMEOUTBUSY: u64 = 400; // ms
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub enum ReceivePacketType {
@@ -84,8 +84,8 @@ impl RawPacket {
 
         Ok((mac_address, Self { conn, uid }))
     }
-    fn fake_uid(&mut self,uid:protocal::ID){
-        self.uid=uid;
+    fn fake_uid(&mut self, uid: protocal::ID) {
+        self.uid = uid;
     }
 }
 
@@ -100,35 +100,35 @@ pub struct Packet<'a> {
 }
 
 impl<'a> Packet<'a> {
-    async fn read_packet(&self) -> Result<RwLockReadGuard<Option<RawPacket>>,Error> {
-        let raw=self.raw.read().await;
+    async fn read_packet(&self) -> Result<RwLockReadGuard<Option<RawPacket>>, Error> {
+        let raw = self.raw.read().await;
         match &*raw {
             Some(_) => Ok(raw),
             None => Err(Error::ClientOffline),
         }
     }
-    async fn write_packet(&self) -> Result<RwLockWriteGuard<Option<RawPacket>>,Error> {
-        let raw=self.raw.write().await;
+    async fn write_packet(&self) -> Result<RwLockWriteGuard<Option<RawPacket>>, Error> {
+        let raw = self.raw.write().await;
         match &*raw {
             Some(_) => Ok(raw),
             None => Err(Error::ClientOffline),
         }
     }
-    pub async fn get_handshake_uid(&self) -> Result<protocal::ID,Error> {
+    pub async fn get_handshake_uid(&self) -> Result<protocal::ID, Error> {
         Ok(self.read_packet().await?.as_ref().unwrap().uid)
     }
     pub fn get_mac(&self) -> [u8; 6] {
         self.info.mac_address
     }
-    async fn send(&self, package: server::Packet) -> Result<(),Error> {
-        let mut packet=self.write_packet().await?;
-        let packet=packet.as_mut().unwrap();
+    async fn send(&self, package: server::Packet) -> Result<(), Error> {
+        let mut packet = self.write_packet().await?;
+        let packet = packet.as_mut().unwrap();
         packet.conn.send(package).await?;
         Ok(())
     }
     async fn read(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
-        let mut packet=self.write_packet().await?;
-        let packet=packet.as_mut().unwrap();
+        let mut packet = self.write_packet().await?;
+        let packet = packet.as_mut().unwrap();
 
         let mut unused = self.unused_receive.lock().await;
         if let Some(packet) = unused.pop(&packet_type) {
@@ -150,10 +150,7 @@ impl<'a> Packet<'a> {
             }
         }
     }
-    async fn read_timeout(
-        &self,
-        packet_type: ReceivePacketType,
-    ) -> Result<host::Packet, Error> {
+    async fn read_timeout(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
         timeout(
             time::Duration::from_secs(TIMEOUTSHORT),
             self.read(packet_type),
@@ -168,13 +165,13 @@ impl<'a> Packet<'a> {
         Ok(())
     }
     async fn fake_uid(&self, id: protocal::ID) -> Result<(), Error> {
-        let mut packet=self.write_packet().await?;
-        let packet=packet.as_mut().unwrap();
+        let mut packet = self.write_packet().await?;
+        let packet = packet.as_mut().unwrap();
         packet.uid = id;
         Ok(())
     }
     pub async fn wol_reconnect(&self, mac_address: &[u8; 6]) -> Result<(), Error> {
-        // TODO: high - send wol while waiting 
+        // TODO: high - send wol while waiting
         timeout(
             time::Duration::from_secs(TIMEOUTSHORT),
             self.wait_reconnect(),
@@ -196,9 +193,9 @@ impl<'a> Packet<'a> {
             .await
             .map_err(|_| Error::Timeout)?;
 
-        let mut packet=self.write_packet().await?;
-        *packet=Some(new_packet);
-        
+        let mut packet = self.write_packet().await?;
+        *packet = Some(new_packet);
+
         Ok(())
     }
     pub async fn shutdown(&self) -> Result<(), Error> {
@@ -245,11 +242,8 @@ impl Packets {
     ) -> Result<Option<Packet<'a>>, Error> {
         let conn = Conn::from_tcp(stream);
         let (mac_address, raw_packet) = RawPacket::from_conn_handshake(conn).await?;
-        match self
-            .event_hook
-            .signal(&mac_address, raw_packet)
-        {
-            Some( raw_packet) => Ok(Some(Packet {
+        match self.event_hook.signal(&mac_address, raw_packet) {
+            Some(raw_packet) => Ok(Some(Packet {
                 unused_receive: Mutex::new(HashVec::default()),
                 manager: self,
                 raw: RwLock::new(Some(raw_packet)),
@@ -258,7 +252,7 @@ impl Packets {
             None => Ok(None),
         }
     }
-    pub fn unconnected<'a>(&'a self,mac_address:[u8;6])-> Result<Packet<'a>, Error>{
+    pub fn unconnected<'a>(&'a self, mac_address: [u8; 6]) -> Result<Packet<'a>, Error> {
         Ok(Packet {
             unused_receive: Mutex::new(HashVec::default()),
             manager: self,

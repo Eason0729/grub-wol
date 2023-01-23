@@ -3,6 +3,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+use super::grub::adaptor::Convert;
 use super::grub::prelude as grub;
 use super::state::AuthMiddleware;
 use super::state::State;
@@ -41,24 +42,35 @@ async fn start() -> Result<(), Error> {
     app.at("/api").nest({
         let mut api = tide::with_state(State::new().await);
         api.with(AuthMiddleware::new());
-        // api.at("/op/up").post(|mut req: Request<State>| async move {
-        //     let state = req.state().clone();
+        api.at("/op/boot")
+            .post(|mut req: Request<State>| async move {
+                let state = req.state().clone()();
 
-        //     let body = req.body_bytes().await?;
-        //     let param: web::BootReq = bincode::deserialize_from(body.as_slice()).unwrap();
+                let body = req.body_bytes().await?;
+                let param: web::BootReq = bincode::deserialize_from(body.as_slice())
+                    .map_err(|_| tide::Error::from_str(400, "Deserialization Error"))?;
 
-        //     let response = bincode::serialize(
-        //         &(state.grub().boot(&param.mac_address, param.os).await).unwrap(),
-        //     )
-        //     .unwrap();
+                let response = state
+                    .grub()
+                    .boot(
+                        param.os,
+                        param
+                            .mac_address
+                            .try_into()
+                            .map_err(|_| tide::Error::from_str(400, "Deserialization Error"))?,
+                    )
+                    .await
+                    .convert()
+                    .await;
 
-        //     let response = Response::builder(203)
-        //         .body(response)
-        //         .content_type(mime::ANY)
-        //         .build();
-
-        //     Ok(response)
-        // });
+                match response {
+                    Ok(x) => Ok(Response::builder(203)
+                        .body(x)
+                        .content_type(mime::ANY)
+                        .build()),
+                    Err(e) => Err(tide::Error::from_str(500, e)),
+                }
+            });
         api
     });
     app.listen("127.0.0.1:8000").await?;

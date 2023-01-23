@@ -11,6 +11,15 @@ where
     values: IndexMap<V, usize>,
 }
 
+impl<V, E> Default for Graph<V, E>
+where
+    V: Hash + Eq,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V, E> Graph<V, E>
 where
     V: Hash + Eq,

@@ -114,7 +114,7 @@ impl<'a> IntBootGraph<'a> {
         mut packet: Packet<'a>,
         id_counter: protocal::ID,
     ) -> Result<IntBootGraph<'a>, Error> {
-        let mac_address = packet.get_mac()?;
+        let mac_address = packet.get_mac();
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
             packet,
@@ -151,7 +151,7 @@ impl<'a> IntBootGraph<'a> {
     ///
     /// If issue id successfully, query osinfo additionally(and return IntermediateOS)
     async fn issue_id(&mut self) -> Result<Option<HighOS>, Error> {
-        if self.packet.get_handshake_uid()? == 0 {
+        if self.packet.get_handshake_uid().await? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
             self.packet.issue_id(id).await?;
@@ -167,7 +167,7 @@ impl<'a> IntBootGraph<'a> {
                 .collect();
 
             let os = HighOS {
-                id: self.packet.get_handshake_uid()?,
+                id: self.packet.get_handshake_uid().await?,
                 display_name: os_info.display_name,
                 unknown_edge: grub_info,
             };
@@ -178,9 +178,9 @@ impl<'a> IntBootGraph<'a> {
         }
     }
     /// Returns the trace(a series of BootMethod) to closest os with unknown edge
-    fn get_closest_trace(&mut self) -> Result<(HighOS, Vec<BootMethod>), Error> {
+    async fn get_closest_trace(&mut self) -> Result<(HighOS, Vec<BootMethod>), Error> {
         let current_os = LowOS {
-            id: self.packet.get_handshake_uid()?,
+            id: self.packet.get_handshake_uid().await?,
         };
         let current_node = self
             .graph
@@ -252,7 +252,7 @@ impl<'a> IntBootGraph<'a> {
             .find_node(&OSState::Down)
             .ok_or(Error::BadGraph)?;
         while !self.is_finish() {
-            let (mut ios, trace) = self.get_closest_trace()?;
+            let (mut ios, trace) = self.get_closest_trace().await?;
 
             for method in &trace {
                 method.execute(&mut self.packet, &self.mac_address).await?;
@@ -276,7 +276,7 @@ impl<'a> IntBootGraph<'a> {
                     dist_os
                 }
                 None => LowOS {
-                    id: self.packet.get_handshake_uid()?,
+                    id: self.packet.get_handshake_uid().await?,
                 },
             };
 
@@ -289,13 +289,12 @@ impl<'a> IntBootGraph<'a> {
                 self.unknown_os.push(ios);
             }
         }
-        // todo!()
-        // TODO: idk what's wrong
         Ok(())
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+// TODO: use Mutex in BootGraph to change display_name on fly
+#[derive(Clone, Deserialize, Serialize, Default)]
 pub struct BootGraph {
     graph: Graph<OSState<LowOS>, BootMethod>,
     os: IndexMap<LowOS, OS>,
@@ -304,8 +303,8 @@ pub struct BootGraph {
 pub type OSId = protocal::ID;
 
 impl BootGraph {
-    pub fn current_os(&self, packet: &Packet<'_>) -> Result<OSState<&OS>, Error> {
-        match packet.get_handshake_uid() {
+    pub async fn current_os(&self, packet: &Packet<'_>) -> Result<OSState<&OS>, Error> {
+        match packet.get_handshake_uid().await {
             Ok(x) => {
                 let os = self.os.get(&LowOS { id: x });
                 match os {
@@ -330,14 +329,17 @@ impl BootGraph {
     }
     pub async fn boot_into(
         &self,
-        os: OSId,
+        os: OSState<protocal::ID>,
         packet: &mut Packet<'_>,
         mac_address: [u8; 6],
     ) -> Result<(), Error> {
-        let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
+        let from = self.current_os(packet).await?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
-        let to = OSState::Up(LowOS { id: os });
+        let to = match os {
+            OSState::Down => OSState::Down,
+            OSState::Up(id) => OSState::Up(LowOS { id: id }),
+        };
         let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
         for method in self
@@ -351,24 +353,24 @@ impl BootGraph {
 
         Ok(())
     }
-    pub async fn off(&self, packet: &mut Packet<'_>, mac_address: [u8; 6]) -> Result<(), Error> {
-        let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
-        let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
+    // pub async fn off(&self, packet: &mut Packet<'_>, mac_address: [u8; 6]) -> Result<(), Error> {
+    //     let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
+    //     let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
-        let to = OSState::Down;
-        let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
+    //     let to = OSState::Down;
+    //     let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
-        for method in self
-            .graph
-            .dijkstra(&from)
-            .trace(&to)
-            .ok_or(Error::BadGraph)?
-        {
-            method.execute(packet, &mac_address).await?;
-        }
+    //     for method in self
+    //         .graph
+    //         .dijkstra(&from)
+    //         .trace(&to)
+    //         .ok_or(Error::BadGraph)?
+    //     {
+    //         method.execute(packet, &mac_address).await?;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 #[derive(thiserror::Error, Debug)]
 

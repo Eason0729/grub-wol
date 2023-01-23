@@ -91,7 +91,6 @@ where
         hook.try_yield().unwrap()
     }
 
-    /// .
     /// Wait for the singal before timeout
     ///
     /// # Panics
@@ -109,7 +108,6 @@ where
             None => Err(()),
         }
     }
-    /// .
     /// Polling for the singal before timeout
     ///
     /// # Panics

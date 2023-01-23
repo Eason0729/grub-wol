@@ -1,4 +1,4 @@
-use std::{env, path::Path};
+use std::{env, path::Path, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 use tide::{Middleware, Request, Response, StatusCode};
@@ -11,15 +11,31 @@ lazy_static! {
     static ref PASSWORD: String = env::var("password").unwrap();
 }
 
-pub struct AppState<'a> {
-    grub: grub::Server<'a>,
+struct StateInner<'a> {
+    pub grub: grub::Server<'a>,
 }
 
-impl<'a> AppState<'a> {
-    pub async fn new() -> AppState<'a> {
+impl<'a> StateInner<'a> {
+    async fn new() -> StateInner<'a> {
         let grub_server = grub::Server::load(&SAVE_PATH).await.unwrap();
 
-        AppState { grub: grub_server }
+        StateInner { grub: grub_server }
+    }
+}
+
+#[derive(Clone)]
+pub struct State<'a> {
+    state: Arc<StateInner<'a>>,
+}
+
+impl<'a> State<'a> {
+    pub async fn new() -> State<'a> {
+        State {
+            state: Arc::new(StateInner::new().await),
+        }
+    }
+    pub fn grub(&self) -> &grub::Server<'a> {
+        &self.state.grub
     }
 }
 

@@ -27,9 +27,10 @@ tide = "0.16.0"
 simple_logger = "4.0.0"
 rand = "0.8.5"
 lazy_static = "1.4.0"
+async-trait = "0.1.62"
 
 [dependencies.serde]
-version = "1.0"
+version = "1.0.152"
 features = ["derive"]
 
 [dependencies.async-std]
@@ -38,6 +39,6 @@ features = ["attributes"]
 
 [dependencies.indexmap]
 version = "1.9.2"
-features = ["serde"]
+features = ["serde-1"]
 
 

@@ -1,28 +1,25 @@
 use super::grub::adaptor::Convert;
 
 use super::{grub, state::AppState};
-use actix_session::SessionExt;
-use actix_web::dev::{Service, ServiceFactory, ServiceRequest, ServiceResponse};
-use actix_web::error::ErrorUnauthorized;
-use actix_web::{body::BoxBody, http::header::ContentType, post, web, HttpResponse, Responder};
-use actix_web::{Resource, Scope};
+use async_trait::async_trait;
+use bincode::config::{Bounded, WithOtherLimit};
+use bincode::{DefaultOptions, Options};
 use futures_lite::Future;
 use serde::Deserialize;
+use tide::{Middleware, Next, Request, Response};
 use website;
 
-pub fn api_entry(cfg: &mut web::ServiceConfig) {
-    cfg
-        .service(boot)
-        .service(list_machine)
-        .service(list_os)
-        .service(info_machine)
-        .service(new_machine);
+lazy_static! {
+    static ref BINCODE: WithOtherLimit<DefaultOptions, Bounded> = bincode::DefaultOptions::new().with_limit(4096);
+    // TODO: replace PASSWORD with env after test
+    static ref PASSWORD:&'static str="abc";
 }
 
-#[post("/op/boot")]
-async fn boot(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+pub async fn boot(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
+        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
         let payload: website::BootReq = check_payload(payload)?;
+        let state = req.state();
         state
             .grub
             .boot(payload.os, &payload.mac_address)
@@ -34,9 +31,9 @@ async fn boot(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponde
     .await
 }
 
-#[post("/get/machines")]
-async fn list_machine(state: web::Data<AppState>) -> BinaryResponder {
+pub async fn list_machine(req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
+        let state = req.state();
         state
             .grub
             .list_machine()
@@ -47,10 +44,11 @@ async fn list_machine(state: web::Data<AppState>) -> BinaryResponder {
     .await
 }
 
-#[post("/get/machine")]
-async fn info_machine(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+pub async fn info_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
+        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
         let payload: website::MachineInfoReq = check_payload(payload)?;
+        let state = req.state();
         state
             .grub
             .info_machine(&payload.mac_address)
@@ -62,10 +60,11 @@ async fn info_machine(state: web::Data<AppState>, payload: web::Bytes) -> Binary
     .await
 }
 
-#[post("/get/oss")]
-async fn list_os(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+pub async fn list_os(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
+        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
         let payload: website::OsListReq = check_payload(payload)?;
+        let state = req.state();
         state
             .grub
             .list_os(&payload.mac_address)
@@ -77,10 +76,11 @@ async fn list_os(state: web::Data<AppState>, payload: web::Bytes) -> BinaryRespo
     .await
 }
 
-#[post("/op/new")]
-async fn new_machine(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+pub async fn new_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
+        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
         let payload: website::NewMachineReq = check_payload(payload)?;
+        let state = req.state();
         state
             .grub
             .init_machine(*payload.mac_address, payload.display_name.to_string())
@@ -92,14 +92,48 @@ async fn new_machine(state: web::Data<AppState>, payload: web::Bytes) -> BinaryR
     .await
 }
 
-fn check_payload<T>(payload: web::Bytes) -> Result<T, Error>
+pub async fn login(mut req: Request<()>) -> Result<Response, tide::Error> {
+    BinaryResponder::parse(async move {
+        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload: website::LoginReq = check_payload(payload)?;
+
+        Ok(bincode::serialize(&if payload.password == *PASSWORD {
+            req.session_mut().insert("authed", true).map_err(|_| {
+                Error::TideError(tide::Error::from_str(500, "Error inserting session"))
+            })?;
+            website::LoginRes::Success
+        } else {
+            website::LoginRes::Fail
+        })
+        .unwrap())
+    })
+    .await
+}
+
+pub struct AuthMiddleware;
+
+#[async_trait]
+impl<State: Clone + Send + Sync + 'static> Middleware<State> for AuthMiddleware {
+    async fn handle(&self, req: Request<State>, next: Next<'_, State>) -> tide::Result {
+        let authed = req.session().get("authed").unwrap_or(false);
+        if authed {
+            Ok(next.run(req).await)
+        } else {
+            Err(tide::Error::from_str(403, "Forbidden"))
+        }
+    }
+}
+
+fn check_payload<T>(payload: Vec<u8>) -> Result<T, Error>
 where
     T: for<'a> Deserialize<'a>,
 {
     if payload.len() > 1024 {
         Err(Error::EntityTooLarge)
     } else {
-        bincode::deserialize(&payload).map_err(|err| Error::DeserializeError(err))
+        BINCODE
+            .deserialize(&payload)
+            .map_err(|err| Error::DeserializeError(err))
     }
 }
 
@@ -114,13 +148,57 @@ enum Error {
     DeserializeError(bincode::Error),
     #[error("Internal Error")]
     InternalError(grub::Error),
+    #[error("Tide Error")]
+    TideError(tide::Error),
     #[error("Entity Too Large")]
     EntityTooLarge,
 }
 
 impl BinaryResponder {
-    async fn parse(f: impl Future<Output = Result<Vec<u8>, Error>>) -> BinaryResponder {
-        f.await.into()
+    async fn parse(
+        f: impl Future<Output = Result<Vec<u8>, Error>>,
+    ) -> Result<Response, tide::Error> {
+        let self_: BinaryResponder = f.await.into();
+        Ok(self_.respond())
+    }
+    fn respond(self) -> Response {
+        match self {
+            BinaryResponder::Ok(x) => Response::builder(200)
+                .body(x)
+                .content_type("application/octet-stream")
+                .build(),
+            BinaryResponder::Err(err) => match err {
+                Error::DeserializeError(err) => {
+                    log::warn!("Error deserializing data from client: {}", err);
+                    Response::builder(400)
+                        .body("See log for more infomation")
+                        .build()
+                }
+                Error::InternalError(err) => {
+                    match err {
+                        grub::Error::UndefinedClientBehavior => {
+                            log::warn!("Client(host) behavior falsely")
+                        }
+                        _ => log::error!("unexpected error: {}", err),
+                    };
+                    Response::builder(500)
+                        .body("See log for more infomation")
+                        .build()
+                }
+                Error::EntityTooLarge => {
+                    log::warn!("Client send a very large payload");
+                    Response::builder(413)
+                        .body("See log for more infomation")
+                        .build()
+                }
+                Error::TideError(err) => {
+                    log::error!("unexpected tide error: {}", err);
+                    Response::builder(500)
+                        .body("See log for more infomation")
+                        .build()
+                }
+            },
+        }
     }
 }
 
@@ -133,33 +211,7 @@ impl From<Result<Vec<u8>, Error>> for BinaryResponder {
     }
 }
 
-impl Responder for BinaryResponder {
-    type Body = BoxBody;
-
-    fn respond_to(self, req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
-        match self {
-            BinaryResponder::Ok(x) => HttpResponse::Ok()
-                .content_type(ContentType::octet_stream())
-                .body(x),
-            BinaryResponder::Err(err) => match err {
-                Error::DeserializeError(err) => {
-                    log::warn!("Error deserializing data from client: {}", err);
-                    HttpResponse::BadRequest().body("See log for more infomation")
-                }
-                Error::InternalError(err) => {
-                    match err {
-                        grub::Error::UndefinedClientBehavior => {
-                            log::warn!("Client(host) behavior falsely")
-                        }
-                        _ => log::error!("unexpected error: {}", err),
-                    };
-                    HttpResponse::BadRequest().body("See log for more infomation")
-                }
-                Error::EntityTooLarge => {
-                    log::warn!("Client send a very large payload");
-                    HttpResponse::PayloadTooLarge().body("See log for more infomation")
-                }
-            },
-        }
-    }
-}
+// #[derive(Default)]
+// struct RequestCounterMiddleware {
+//     requests_counted: Arc<AtomicUsize>,
+// }

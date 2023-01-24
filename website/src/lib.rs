@@ -80,6 +80,20 @@ pub enum NewMachineRes {
     NotFound,
 }
 
+// login
+// POST /auth
+// cts
+#[derive(Deserialize, Serialize)]
+pub struct LoginReq<'a>{
+    pub password:Cow<'a,str>
+}
+// stc
+#[derive(Deserialize, Serialize)]
+pub enum LoginRes{
+    Success,
+    Fail
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct MachineInfoInner<'a> {
     pub mac_address: Cow<'a,[u8;6]>,
@@ -104,3 +118,4 @@ pub struct OsInfoInner<'a> {
     pub display_name: Cow<'a,str>,
     pub id: ID,
 }
+

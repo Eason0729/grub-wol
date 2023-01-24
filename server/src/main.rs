@@ -1,31 +1,44 @@
+#![allow(dead_code)]
+
 #[macro_use]
 extern crate lazy_static;
 
 pub mod auth;
 mod test;
 pub mod web;
-use actix_session::{storage::CookieSessionStore, SessionMiddleware};
-use actix_web::{cookie::Key, App, HttpServer, rt::spawn};
+use rand::Rng;
 use simple_logger::SimpleLogger;
-use web::{state::AppState, route::api_entry, grub::machine};
+use web::prelude::*;
 
+use crate::web::route;
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
+#[async_std::main]
+async fn main() {
     SimpleLogger::new().init().unwrap();
 
-    let state=AppState::new().await;
-    spawn(machine::Server::start(state.grub.clone()));
+    let app_state = AppState::new().await;
+    app_state.start_grub();
 
-    let secret_key = Key::generate();
+    let mut app = tide::new();
 
-    HttpServer::new(move ||App::new().app_data(state.clone())
-    .wrap(SessionMiddleware::new(
-        CookieSessionStore::default(),
-        secret_key.clone(),
-    ))
-    .configure(api_entry))
-    .bind(("0.0.0.0", 8000))?
-    .run()
-    .await
+    let cookie_secret: [u8; 32] = rand::thread_rng().gen();
+    app.with(tide::sessions::SessionMiddleware::new(
+        tide::sessions::MemoryStore::new(),
+        &cookie_secret,
+    ));
+
+    app.at("/login").post(route::login);
+    app.at("/api").nest({
+        let mut api = tide::with_state(app_state);
+        api.with(route::AuthMiddleware);
+        api.at("/op/boot").post(route::boot);
+        api.at("/get/machines").post(route::list_machine);
+        api.at("/get/machine").post(route::info_machine);
+        api.at("/get/oss").post(route::list_os);
+        api.at("/op/new").post(route::new_machine);
+        api
+    });
+    app.at("/").serve_dir("static").unwrap();
+
+    app.listen("0.0.0.0:8000").await.unwrap();
 }

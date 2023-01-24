@@ -8,8 +8,9 @@ use std::task::{self, Poll};
 use std::time;
 use std::{collections::*, future::Future};
 
+use async_std::future::timeout;
+use async_std::task::sleep;
 use futures_lite::future::race;
-use tokio::time::{sleep, timeout};
 
 use super::hashvec::*;
 
@@ -76,7 +77,7 @@ where
         F: Fn(),
     {
         let hook = self.register(signal);
-        let id = race(
+        race(
             async {
                 loop {
                     f();
@@ -101,7 +102,8 @@ where
     /// This function will return an error if timeout
     pub async fn timeout(&self, signal: S, timeout_: time::Duration) -> Result<P, ()> {
         let hook = self.register(signal);
-        timeout(timeout_, hook.try_wait()).await;
+
+        timeout(timeout_, hook.try_wait()).await.ok();
         match hook.try_yield() {
             Some(x) => Ok(x),
             None => Err(()),
@@ -128,7 +130,7 @@ where
     {
         let hook = self.register(signal);
 
-        let id = timeout(
+        timeout(
             timeout_,
             race(
                 async {
@@ -140,7 +142,8 @@ where
                 hook.try_wait(),
             ),
         )
-        .await;
+        .await
+        .ok();
 
         match hook.try_yield() {
             Some(x) => Ok(x),
@@ -241,11 +244,11 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use tokio::spawn;
+    use async_std::task::spawn;
 
     use super::*;
 
-    #[tokio::test]
+    #[async_std::test]
     async fn signal() {
         let event_q = Arc::new(EventHook::default());
         let output = Arc::new(AtomicUsize::new(0));
@@ -275,7 +278,7 @@ mod test {
         }
     }
 
-    #[tokio::test]
+    #[async_std::test]
     async fn timeout() {
         let event_q = Arc::new(EventHook::<(), ()>::default());
         let output = Arc::new(AtomicUsize::new(0));

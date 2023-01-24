@@ -6,7 +6,6 @@ use super::graph::Graph;
 use indexmap::IndexMap;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
-use std::collections::*;
 
 pub type GrubSec = protocal::Integer;
 
@@ -84,10 +83,9 @@ impl BootMethod {
     pub async fn execute(
         &self,
         packet: &mut Packet,
-        mac_address: &[u8; 6],
     ) -> Result<(), packet::Error> {
         match self {
-            BootMethod::WOL => packet.wol_reconnect(mac_address).await?,
+            BootMethod::WOL => packet.wol_reconnect().await?,
             BootMethod::Grub(x) => {
                 packet.boot_into(*x).await?;
                 packet.wait_reconnect().await?;
@@ -110,7 +108,7 @@ pub struct IntBootGraph {
 }
 
 impl IntBootGraph {
-    pub async fn new(mut packet: Packet, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
+    pub async fn new(packet: Packet, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
         let mac_address = packet.get_mac();
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
@@ -252,7 +250,7 @@ impl IntBootGraph {
             let (mut ios, trace) = self.get_closest_trace().await?;
 
             for method in &trace {
-                method.execute(&mut self.packet, &self.mac_address).await?;
+                method.execute(&mut self.packet).await?;
             }
 
             let from = ios.into_low();
@@ -263,7 +261,7 @@ impl IntBootGraph {
             let grub_sec = ios.unknown_edge.pop().ok_or(Error::BadGraph)?;
             let method = BootMethod::Grub(grub_sec);
 
-            method.execute(&mut self.packet, &self.mac_address).await?;
+            method.execute(&mut self.packet).await?;
 
             let dist = match self.issue_id().await? {
                 Some(ios) => {
@@ -328,7 +326,6 @@ impl BootGraph {
         &self,
         os: OSState<protocal::ID>,
         packet: &mut Packet,
-        mac_address: [u8; 6],
     ) -> Result<(), Error> {
         let from = self.current_os(packet).await?.map(|x| LowOS { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
@@ -345,7 +342,7 @@ impl BootGraph {
             .trace(&to)
             .ok_or(Error::BadGraph)?
         {
-            method.execute(packet, &mac_address).await?;
+            method.execute(packet).await?;
         }
 
         Ok(())

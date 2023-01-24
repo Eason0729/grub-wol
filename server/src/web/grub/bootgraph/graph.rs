@@ -71,7 +71,9 @@ where
     pub fn has_direct_edge(&mut self, from: Node, to: Node) -> bool {
         let mut contain = false;
         self.edges[from.0].iter().for_each(|edge| {
-            contain = true;
+            if edge.to == to.0 {
+                contain = true;
+            }
         });
         contain
     }
@@ -124,7 +126,7 @@ where
             last_edge,
         }
     }
-    pub fn transform_node<F, T>(mut self, mut f: F) -> Graph<T, E>
+    pub fn transform_node<F, T>(self, mut f: F) -> Graph<T, E>
     where
         F: FnMut(V) -> T,
         T: Hash + Eq,

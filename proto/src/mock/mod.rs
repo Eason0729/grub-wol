@@ -1,4 +1,5 @@
 // edit from https://hackmd.io/@lbernick/SkgO7bCMw
+use async_std::io::{Read, Write};
 use std::io;
 use std::{
     collections::VecDeque,
@@ -7,19 +8,17 @@ use std::{
     task::{self, Poll},
 };
 
-use tokio::io::{AsyncRead, AsyncWrite};
-
 pub struct MockTcpStream {
     writer: Option<Arc<Mutex<VecDeque<u8>>>>,
     reader: Option<Arc<Mutex<VecDeque<u8>>>>,
 }
 
-impl AsyncWrite for MockTcpStream {
+impl Write for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
+        _: &mut task::Context<'_>,
         buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
+    ) -> Poll<io::Result<usize>> {
         match &self.writer {
             Some(writer) => {
                 let mut writer = writer.lock().unwrap();
@@ -30,32 +29,27 @@ impl AsyncWrite for MockTcpStream {
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> Poll<Result<(), io::Error>> {
+    fn poll_close(mut self: Pin<&mut Self>, _: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         self.reader = None;
         Poll::Ready(Ok(()))
     }
 }
 
-impl AsyncRead for MockTcpStream {
+impl Read for MockTcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+        _: &mut task::Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<io::Result<usize>> {
         match &self.reader {
             Some(reader) => {
                 let mut reader = reader.lock().unwrap();
-                let mut slice=vec![0;1024];
-                let size = io::Read::read(&mut *reader, &mut slice).unwrap();
-                buf.put_slice(&slice[0..size]);
-                Poll::Ready(Ok(()))
+                let size = io::Read::read(&mut *reader, buf).unwrap();
+                Poll::Ready(Ok(size))
             }
             None => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),
         }

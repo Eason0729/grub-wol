@@ -1,6 +1,6 @@
 use super::adaptor;
-use tokio::net;
-use tokio::sync::Mutex;
+use async_std::net;
+use async_std::sync::Mutex;
 use website;
 // TODO: fix mutability(RefCell maybe!)
 use super::packet::{self, Packet, Packets};
@@ -9,13 +9,8 @@ use super::bootgraph::{self, *};
 use super::serde::{Serde, ServerSave};
 
 use indexmap::IndexMap;
-use log::{info, warn};
 use proto::prelude as protocal;
-use serde::{Deserialize, Serialize};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::marker::PhantomData;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::{collections::*, io};
@@ -97,14 +92,14 @@ impl Server {
     pub async fn load(path: &Path) -> Result<Server, Error> {
         Ok(ServerSave::load(path).await)
     }
-    pub async fn start(self_:Arc<Self>) {
+    pub async fn start(self_: Arc<Self>) {
         let listener = net::TcpListener::bind(self_.socket).await.unwrap();
         loop {
             let (stream, _) = listener.accept().await.unwrap();
             match self_.connect_tcp(stream).await {
                 Ok(_) => {}
                 Err(err) => {
-                    warn!("{:?}", err);
+                    log::warn!("{:?}", err);
                 }
             };
         }
@@ -265,11 +260,11 @@ impl From<bootgraph::Error> for Error {
     }
 }
 
-struct Tester<G>
-where
-    G: Sync,
-{
-    a: PhantomData<G>,
-}
+// struct Tester<G>
+// where
+//     G: Sync,
+// {
+//     a: PhantomData<G>,
+// }
 
-type tester_result = Tester<Server>;
+// type tester_result = Tester<Server>;

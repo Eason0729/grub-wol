@@ -1,12 +1,11 @@
 use std::borrow::Cow;
 use std::mem;
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use super::bootgraph;
 use super::machine::{Error, Machine, Server};
 use async_trait::async_trait;
 use log::warn;
-use proto::prelude::ID;
 use serde::Serialize;
 use website;
 
@@ -129,8 +128,7 @@ impl Convert<website::BootRes> for BootAdaptor {
 
         match out_packet {
             Some(mut packet) => {
-                let mac = packet.get_mac();
-                let raw = match machine.boot_graph.boot_into(os, &mut packet, mac).await {
+                let raw = match machine.boot_graph.boot_into(os, &mut packet).await {
                     Ok(_) => website::BootRes::Success,
                     Err(e) => {
                         warn!("{}", e);

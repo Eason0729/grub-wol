@@ -1,6 +1,6 @@
-use std::future::Future;
-use std::net::{Ipv4Addr, UdpSocket};
-use std::{mem, time};
+use std::net::Ipv4Addr;
+
+use async_std::net::UdpSocket;
 
 const SIX_FF: [u8; 6] = [0xFF; 6];
 
@@ -25,12 +25,13 @@ impl MagicPacket {
             },
         }
     }
-    pub fn send(&self) {
+    pub async fn send(&self) {
         println!("user  : sending MagicPacket");
-        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).unwrap();
+        let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
         socket.set_broadcast(true).unwrap();
         socket
             .send_to(&self.packet, (Ipv4Addr::BROADCAST, 9))
+            .await
             .unwrap();
     }
 }

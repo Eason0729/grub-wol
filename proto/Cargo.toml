@@ -17,6 +17,6 @@ lazy_static = "1.4.0"
 thiserror = "1.0.37"
 async-channel = "1.8.0"
 
-[dependencies.tokio]
-version = "1.24.2"
-features = ["rt","io-util","net","macros","sync"]
+[dependencies.async-std]
+version = "1.12.0"
+features = ["attributes"]

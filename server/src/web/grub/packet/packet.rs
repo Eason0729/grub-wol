@@ -1,22 +1,24 @@
-use std::pin::Pin;
 use std::sync::Arc;
+use std::time;
 use std::time::Duration;
-use std::{mem, time};
 
 use super::event::EventHook;
 use super::hashvec::HashVec;
 use super::wol;
-use futures_lite::Future;
+use async_std::{
+    future::timeout,
+    net,
+    sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    task::sleep,
+};
+use futures_lite::future::race;
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
-use tokio::net;
-use tokio::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use tokio::time::timeout;
 type MacAddress = [u8; 6];
 
 type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;
 
-const TIMEOUT: u64 = 180;
+const TIMEOUTLONG: u64 = 180;
 const TIMEOUTSHORT: u64 = 5;
 const TIMEOUTBUSY: u64 = 400; // ms
 
@@ -170,26 +172,26 @@ impl Packet {
         packet.uid = id;
         Ok(())
     }
-    pub async fn wol_reconnect(&self, mac_address: &[u8; 6]) -> Result<(), Error> {
-        // TODO: high - send wol while waiting
-        timeout(
-            time::Duration::from_secs(TIMEOUTSHORT),
+    pub async fn wol_reconnect(&self) -> Result<(), Error> {
+        race(
+            async {
+                loop {
+                    wol::MagicPacket::new(&self.info.mac_address).send().await;
+                    sleep(Duration::from_secs(1)).await;
+                }
+            },
             self.wait_reconnect(),
         )
         .await
-        .map_err(|_| Error::Timeout)?
     }
     pub async fn wait_reconnect(&self) -> Result<(), Error> {
-        // let mut packet=self.write_packet()?;
-        // let packet1=&mut *packet;
-        // *packet1=None;
-        // drop(packet1);
-        // drop(packet);
-
         let event_hook = &self.event_hook;
 
         let new_packet = event_hook
-            .timeout(self.info.mac_address, time::Duration::from_secs(TIMEOUT))
+            .timeout(
+                self.info.mac_address,
+                time::Duration::from_secs(TIMEOUTLONG),
+            )
             .await
             .map_err(|_| Error::Timeout)?;
 
@@ -217,7 +219,7 @@ impl Packet {
     pub async fn boot_into(&mut self, grub_sec: protocal::Integer) -> Result<(), Error> {
         self.send(server::Packet::Reboot(grub_sec)).await?;
         self.read_timeout(ReceivePacketType::Reboot).await?;
-        self.wol_reconnect(&self.get_mac()).await?;
+        self.wol_reconnect().await?;
         Ok(())
     }
     pub async fn os_query(&self) -> Result<host::OSInfo, Error> {

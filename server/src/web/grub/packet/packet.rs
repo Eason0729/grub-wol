@@ -18,9 +18,9 @@ type MacAddress = [u8; 6];
 
 type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;
 
-const TIMEOUTLONG: u64 = 180;
+const TIMEOUTLONG: u64 = 3600;
+const TIMEOUT: u64 = 180;
 const TIMEOUTSHORT: u64 = 5;
-const TIMEOUTBUSY: u64 = 400; // ms
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub enum ReceivePacketType {
@@ -188,10 +188,7 @@ impl Packet {
         let event_hook = &self.event_hook;
 
         let new_packet = event_hook
-            .timeout(
-                self.info.mac_address,
-                time::Duration::from_secs(TIMEOUTLONG),
-            )
+            .timeout(self.info.mac_address, time::Duration::from_secs(TIMEOUT))
             .await
             .map_err(|_| Error::Timeout)?;
 
@@ -216,7 +213,7 @@ impl Packet {
             Err(Error::UnknownProtocal)
         }
     }
-    pub async fn boot_into(&mut self, grub_sec: protocal::Integer) -> Result<(), Error> {
+    pub async fn boot_into(&mut self, grub_sec: protocal::GrubId) -> Result<(), Error> {
         self.send(server::Packet::Reboot(grub_sec)).await?;
         self.read_timeout(ReceivePacketType::Reboot).await?;
         self.wol_reconnect().await?;
@@ -241,6 +238,10 @@ impl Packets {
     pub async fn connect(&self, stream: net::TcpStream) -> Result<Option<Packet>, Error> {
         let conn = Conn::from_tcp(stream);
         let (mac_address, raw_packet) = RawPacket::from_conn_handshake(conn).await?;
+        log::trace!(
+            "Client with mac address {:x?} has finished hanshake",
+            &mac_address
+        );
         match self.event_hook.signal(&mac_address, raw_packet) {
             Some(raw_packet) => Ok(Some(Packet {
                 unused_receive: Mutex::new(HashVec::default()),

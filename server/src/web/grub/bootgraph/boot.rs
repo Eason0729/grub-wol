@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use proto::prelude as protocal;
 use serde::{Deserialize, Serialize};
 
-pub type GrubSec = protocal::Integer;
+pub type GrubSec = protocal::GrubId;
 
 trait IntoLow {
     type Low;
@@ -80,10 +80,7 @@ pub enum BootMethod {
 }
 
 impl BootMethod {
-    pub async fn execute(
-        &self,
-        packet: &mut Packet,
-    ) -> Result<(), packet::Error> {
+    pub async fn execute(&self, packet: &mut Packet) -> Result<(), packet::Error> {
         match self {
             BootMethod::WOL => packet.wol_reconnect().await?,
             BootMethod::Grub(x) => {

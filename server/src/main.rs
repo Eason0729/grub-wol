@@ -4,6 +4,7 @@
 extern crate lazy_static;
 
 pub mod auth;
+#[cfg(test)]
 mod test;
 pub mod web;
 use rand::Rng;
@@ -20,6 +21,8 @@ async fn main() {
     app_state.start_grub();
 
     let mut app = tide::new();
+
+    app.with(tide::log::LogMiddleware::new());
 
     let cookie_secret: [u8; 32] = rand::thread_rng().gen();
     app.with(tide::sessions::SessionMiddleware::new(

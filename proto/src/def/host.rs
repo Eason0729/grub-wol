@@ -22,7 +22,7 @@ pub struct HandShake {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GrubInfo {
-    pub grub_sec: constant::Integer,
+    pub grub_sec: constant::GrubId,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

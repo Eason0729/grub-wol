@@ -1,9 +1,8 @@
 use super::adaptor;
+use super::packet::{self, Packet, Packets};
 use async_std::net;
 use async_std::sync::Mutex;
 use website;
-// TODO: fix mutability(RefCell maybe!)
-use super::packet::{self, Packet, Packets};
 
 use super::bootgraph::{self, *};
 use super::serde::{Serde, ServerSave};
@@ -86,6 +85,7 @@ impl Server {
         }
     }
     pub async fn save(&self, path: &Path) -> Result<(), Error> {
+        log::info!("Backing up Grub server");
         ServerSave::save(&self, path).await;
         Ok(())
     }
@@ -93,9 +93,14 @@ impl Server {
         Ok(ServerSave::load(path).await)
     }
     pub async fn start(self_: Arc<Self>) {
+        log::info!("Starting Grub server");
         let listener = net::TcpListener::bind(self_.socket).await.unwrap();
         loop {
-            let (stream, _) = listener.accept().await.unwrap();
+            let (stream, socket) = listener.accept().await.unwrap();
+            log::debug!(
+                "Client from socket({}) is trying to connect to Grub server",
+                socket
+            );
             match self_.connect_tcp(stream).await {
                 Ok(_) => {}
                 Err(err) => {
@@ -128,6 +133,7 @@ impl Server {
         mac: MacAddress,
         display_name: String,
     ) -> Result<bool, Error> {
+        log::debug!("initializing new machine of mac address({:x?})", &mac);
         let mut unknown_packet = self.unknown_packet.lock().await;
 
         let packet = unknown_packet.pop(|item| item.get_mac() == mac);
@@ -246,7 +252,7 @@ pub enum Error {
     IoError(#[from] io::Error),
     #[error("Unable to save file")]
     BincodeError(#[from] bincode::Error),
-    #[error("Client not connetced")]
+    #[error("Client not connected")]
     ClientNotConnected,
 }
 
@@ -259,12 +265,3 @@ impl From<bootgraph::Error> for Error {
         }
     }
 }
-
-// struct Tester<G>
-// where
-//     G: Sync,
-// {
-//     a: PhantomData<G>,
-// }
-
-// type tester_result = Tester<Server>;

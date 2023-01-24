@@ -179,7 +179,7 @@ impl BinaryResponder {
                         grub::Error::UndefinedClientBehavior => {
                             log::warn!("Client(host) behavior falsely")
                         }
-                        _ => log::error!("unexpected error: {}", err),
+                        _ => log::error!("unexpected error: {:?}", err),
                     };
                     Response::builder(500)
                         .body("See log for more infomation")
@@ -192,7 +192,7 @@ impl BinaryResponder {
                         .build()
                 }
                 Error::TideError(err) => {
-                    log::error!("unexpected tide error: {}", err);
+                    log::error!("unexpected tide error: {:?}", err);
                     Response::builder(500)
                         .body("See log for more infomation")
                         .build()

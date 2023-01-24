@@ -8,7 +8,12 @@ use ::serde::{Deserialize, Serialize};
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use proto::prelude::SERVER_PORT;
-use tokio::{fs::File, sync::Mutex, net, io::{AsyncReadExt, AsyncWriteExt}};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+    net,
+    sync::Mutex,
+};
 
 use super::{
     bootgraph::BootGraph,
@@ -40,7 +45,7 @@ where
         let buf = bincode::serialize(&Self::serde(src).await).unwrap();
 
         let mut file = File::open(path).await.unwrap();
-        file.write_all(&buf);
+        file.write_all(&buf).await;
     }
 }
 

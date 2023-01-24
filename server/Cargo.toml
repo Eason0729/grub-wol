@@ -15,8 +15,8 @@ strip = true
 [dependencies.proto]
 path = "./../proto"
 
-[dependencies.web]
-path = "./../web"
+[dependencies.website]
+path = "./../website"
 
 [dependencies]
 thiserror = "1.0.37"

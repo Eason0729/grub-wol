@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 /// file for api response
 use proto::prelude::ID;
 use serde::{Deserialize, Serialize};
@@ -6,8 +8,8 @@ use serde::{Deserialize, Serialize};
 // POST /api/op/boot
 // cts
 #[derive(Deserialize, Serialize)]
-pub struct BootReq {
-    pub mac_address: [u8; 6],
+pub struct BootReq<'a> {
+    pub mac_address: Cow<'a,[u8;6]>,
     pub os: OSState,
 }
 // stc
@@ -24,7 +26,6 @@ pub enum BootRes {
 // stc
 #[derive(Deserialize, Serialize)]
 pub struct MachineList<'a> {
-    #[serde(borrow)]
     pub machines: Vec<MachineInfoInner<'a>>,
 }
 
@@ -33,8 +34,7 @@ pub struct MachineList<'a> {
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct MachineInfoReq<'a> {
-    #[serde(borrow)]
-    pub mac_address: &'a [u8],
+    pub mac_address: Cow<'a,[u8;6]>,
 }
 // stc
 // return type is wrapped in option
@@ -45,13 +45,11 @@ pub type MachineInfo<'a> = Option<MachineInfoInner<'a>>;
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct OsListReq<'a> {
-    #[serde(borrow)]
-    pub mac_address: &'a [u8],
+    pub mac_address: Cow<'a,[u8;6]>,
 }
 // stc
 #[derive(Deserialize, Serialize)]
 pub struct OsList<'a> {
-    #[serde(borrow)]
     pub oss: Vec<OsInfoInner<'a>>,
 }
 
@@ -71,8 +69,8 @@ pub struct OsList<'a> {
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct NewMachineReq<'a> {
-    pub display_name: &'a str,
-    pub mac_address: [u8; 6],
+    pub display_name: Cow<'a, str>,
+    pub mac_address: Cow<'a,[u8;6]>,
 }
 // stc
 #[derive(Deserialize, Serialize)]
@@ -84,8 +82,7 @@ pub enum NewMachineRes {
 
 #[derive(Deserialize, Serialize)]
 pub struct MachineInfoInner<'a> {
-    #[serde(borrow)]
-    pub mac_address: &'a [u8],
+    pub mac_address: Cow<'a,[u8;6]>,
     pub state: MachineState,
 }
 
@@ -104,6 +101,6 @@ pub enum OSState {
 
 #[derive(Deserialize, Serialize)]
 pub struct OsInfoInner<'a> {
-    pub display_name: &'a str,
+    pub display_name: Cow<'a,str>,
     pub id: ID,
 }

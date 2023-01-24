@@ -1,14 +1,14 @@
+use std::borrow::Cow;
 use std::mem;
 use std::{pin::Pin, sync::Arc};
 
 use super::bootgraph;
 use super::machine::{Error, Machine, Server};
 use async_trait::async_trait;
-use futures_lite::Future;
 use log::warn;
 use proto::prelude::ID;
 use serde::Serialize;
-use web;
+use website;
 
 #[async_trait]
 pub trait Convert<K>
@@ -21,22 +21,23 @@ where
 pub struct OsListAdaptor<'a> {
     pub(super) machine: Option<Arc<Machine<'a>>>,
 }
+
 #[async_trait]
-impl<'a> Convert<web::OsList<'a>> for OsListAdaptor<'a> {
+impl<'a> Convert<website::OsList<'a>> for OsListAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         match self.machine {
             Some(machine) => {
                 let oss = machine
                     .boot_graph
                     .list_os()
-                    .map(|os| web::OsInfoInner {
-                        display_name: &os.display_name,
+                    .map(|os| website::OsInfoInner {
+                        display_name: Cow::Borrowed(&os.display_name),
                         id: os.id,
                     })
                     .collect();
-                Ok(bincode::serialize(&web::OsList { oss }).unwrap())
+                Ok(bincode::serialize(&website::OsList { oss }).unwrap())
             }
-            None => Ok(bincode::serialize(&web::OsList { oss: Vec::new() }).unwrap()),
+            None => Ok(bincode::serialize(&website::OsList { oss: Vec::new() }).unwrap()),
         }
     }
 }
@@ -46,7 +47,7 @@ pub struct MachineInfoAdaptor<'a> {
 }
 
 #[async_trait]
-impl<'a> Convert<web::MachineInfo<'a>> for MachineInfoAdaptor<'a> {
+impl<'a> Convert<website::MachineInfo<'a>> for MachineInfoAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         match self.machine {
             Some(machine) => {
@@ -55,16 +56,16 @@ impl<'a> Convert<web::MachineInfo<'a>> for MachineInfoAdaptor<'a> {
                     None => None,
                 };
 
-                Ok(bincode::serialize(&Some(web::MachineInfoInner {
-                    mac_address: &machine.mac_address,
+                Ok(bincode::serialize(&Some(website::MachineInfoInner {
+                    mac_address: Cow::Borrowed(&machine.mac_address),
                     state: match current_os {
-                        Some(os) => web::MachineState::Up(os),
-                        None => web::MachineState::Down,
+                        Some(os) => website::MachineState::Up(os),
+                        None => website::MachineState::Down,
                     },
                 }))
                 .unwrap())
             }
-            None => Ok(bincode::serialize::<Option<web::MachineInfoInner>>(&None).unwrap()),
+            None => Ok(bincode::serialize::<Option<website::MachineInfoInner>>(&None).unwrap()),
         }
     }
 }
@@ -74,7 +75,7 @@ pub struct MachineListAdaptor<'a, 'b> {
 }
 
 #[async_trait]
-impl<'a, 'b> Convert<web::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
+impl<'a, 'b> Convert<website::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let mut machines = Vec::new();
         let server = self.server;
@@ -82,43 +83,43 @@ impl<'a, 'b> Convert<web::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
         let machines_src = server.machines.lock().await;
         for (mac_address, machine) in machines_src.iter() {
             let current_os = machine.current_os().await?.map(|os| os);
-            machines.push(web::MachineInfoInner {
+            machines.push(website::MachineInfoInner {
                 state: match current_os {
-                    Some(os) => web::MachineState::Up(os),
-                    None => web::MachineState::Down,
+                    Some(os) => website::MachineState::Up(os),
+                    None => website::MachineState::Down,
                 },
-                mac_address,
+                mac_address: Cow::Borrowed(mac_address),
             });
         }
 
         let unknown_src = server.unknown_packet.lock().await;
         let unknown_mac: Vec<[u8; 6]> = unknown_src.iter().map(|p| p.get_mac()).collect();
         unknown_mac.iter().for_each(|mac_address| {
-            machines.push(web::MachineInfoInner {
-                mac_address,
-                state: web::MachineState::Uninited,
+            machines.push(website::MachineInfoInner {
+                mac_address: Cow::Borrowed(mac_address),
+                state: website::MachineState::Uninited,
             });
         });
 
-        Ok(bincode::serialize(&web::MachineList { machines }).unwrap())
+        Ok(bincode::serialize(&website::MachineList { machines }).unwrap())
     }
 }
 
 pub struct BootAdaptor<'a> {
-    pub(super) os: web::OSState,
+    pub(super) os: website::OSState,
     pub(super) machine: Option<Arc<Machine<'a>>>,
 }
 
 #[async_trait]
-impl<'a> Convert<web::BootRes> for BootAdaptor<'a> {
+impl<'a> Convert<website::BootRes> for BootAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let os = match self.os {
-            web::OSState::Down => bootgraph::OSState::Down,
-            web::OSState::Up(x) => bootgraph::OSState::Up(x),
+            website::OSState::Down => bootgraph::OSState::Down,
+            website::OSState::Up(x) => bootgraph::OSState::Up(x),
         };
 
         if self.machine.is_none() {
-            return Ok(bincode::serialize(&web::BootRes::NotFound).unwrap());
+            return Ok(bincode::serialize(&website::BootRes::NotFound).unwrap());
         }
         let machine = self.machine.unwrap();
         let mut packet = machine.packet.lock().await;
@@ -130,15 +131,15 @@ impl<'a> Convert<web::BootRes> for BootAdaptor<'a> {
             Some(mut packet) => {
                 let mac = packet.get_mac();
                 let raw = match machine.boot_graph.boot_into(os, &mut packet, mac).await {
-                    Ok(_) => web::BootRes::Success,
+                    Ok(_) => website::BootRes::Success,
                     Err(e) => {
                         warn!("{}", e);
-                        web::BootRes::Fail
+                        website::BootRes::Fail
                     }
                 };
                 Ok(bincode::serialize(&raw).unwrap())
             }
-            None => Ok(bincode::serialize(&web::BootRes::NotFound).unwrap()),
+            None => Ok(bincode::serialize(&website::BootRes::NotFound).unwrap()),
         }
     }
 }
@@ -150,7 +151,7 @@ pub struct NewMachineAdaptor<'a, 'b> {
 }
 
 #[async_trait]
-impl<'a, 'b> Convert<web::NewMachineRes> for NewMachineAdaptor<'a, 'b>
+impl<'a, 'b> Convert<website::NewMachineRes> for NewMachineAdaptor<'a, 'b>
 where
     'a: 'b,
 {
@@ -162,12 +163,12 @@ where
         {
             Ok(x) => {
                 if x {
-                    web::NewMachineRes::Success
+                    website::NewMachineRes::Success
                 } else {
-                    web::NewMachineRes::NotFound
+                    website::NewMachineRes::NotFound
                 }
             }
-            Err(_) => web::NewMachineRes::Fail,
+            Err(_) => website::NewMachineRes::Fail,
         })
         .unwrap())
     }

@@ -1446,7 +1446,7 @@ dependencies = [
  "simple_logger",
  "thiserror",
  "tokio",
- "web",
+ "website",
 ]
 
 [[package]]
@@ -1821,16 +1821,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
 
 [[package]]
-name = "web"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "proto",
- "serde",
- "yew",
-]
-
-[[package]]
 name = "web-sys"
 version = "0.3.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1838,6 +1828,16 @@ checksum = "bcda906d8be16e728fd5adc5b729afad4e444e106ab28cd1c7256e54fa61510f"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "website"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "proto",
+ "serde",
+ "yew",
 ]
 
 [[package]]

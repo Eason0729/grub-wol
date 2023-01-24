@@ -1,7 +1,7 @@
 use super::adaptor;
 use tokio::net;
 use tokio::sync::Mutex;
-use web;
+use website;
 // TODO: fix mutability(RefCell maybe!)
 use super::packet::{self, Packet, Packets};
 
@@ -153,7 +153,7 @@ impl<'a> Server<'a> {
             .get(mac_address)
             .map(|a| a.clone())
     }
-    pub async fn list_os(&'a self, mac_address: &'a [u8; 6]) -> adaptor::OsListAdaptor {
+    pub async fn list_os<'b>(&'b self, mac_address: &'b [u8; 6]) -> adaptor::OsListAdaptor<'b>where 'b :'a {
         adaptor::OsListAdaptor {
             machine: self.get_machine(mac_address).await,
         }
@@ -171,7 +171,7 @@ impl<'a> Server<'a> {
     }
     pub async fn boot(
         &'a self,
-        os: web::OSState,
+        os: website::OSState,
         mac_address: &'a [u8; 6],
     ) -> adaptor::BootAdaptor {
         adaptor::BootAdaptor {

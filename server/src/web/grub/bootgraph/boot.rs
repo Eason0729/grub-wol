@@ -83,7 +83,7 @@ pub enum BootMethod {
 impl BootMethod {
     pub async fn execute(
         &self,
-        packet: &mut Packet<'_>,
+        packet: &mut Packet,
         mac_address: &[u8; 6],
     ) -> Result<(), packet::Error> {
         match self {
@@ -100,20 +100,17 @@ impl BootMethod {
     }
 }
 
-pub struct IntBootGraph<'a> {
+pub struct IntBootGraph {
     graph: Graph<OSState<LowOS>, BootMethod>,
-    packet: Packet<'a>,
+    packet: Packet,
     unknown_os: Vec<HighOS>,
     ioss: Vec<HighOS>,
     id_counter: protocal::ID,
     mac_address: [u8; 6],
 }
 
-impl<'a> IntBootGraph<'a> {
-    pub async fn new(
-        mut packet: Packet<'a>,
-        id_counter: protocal::ID,
-    ) -> Result<IntBootGraph<'a>, Error> {
+impl IntBootGraph {
+    pub async fn new(mut packet: Packet, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
         let mac_address = packet.get_mac();
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
@@ -221,7 +218,7 @@ impl<'a> IntBootGraph<'a> {
 
         Ok((os, trace))
     }
-    pub fn disassemble(self) -> (BootGraph, Packet<'a>, protocal::ID) {
+    pub fn disassemble(self) -> (BootGraph, Packet, protocal::ID) {
         let mut map = IndexMap::new();
 
         for ios in self.ioss {
@@ -303,7 +300,7 @@ pub struct BootGraph {
 pub type OSId = protocal::ID;
 
 impl BootGraph {
-    pub async fn current_os(&self, packet: &Packet<'_>) -> Result<OSState<&OS>, Error> {
+    pub async fn current_os(&self, packet: &Packet) -> Result<OSState<&OS>, Error> {
         match packet.get_handshake_uid().await {
             Ok(x) => {
                 let os = self.os.get(&LowOS { id: x });
@@ -330,7 +327,7 @@ impl BootGraph {
     pub async fn boot_into(
         &self,
         os: OSState<protocal::ID>,
-        packet: &mut Packet<'_>,
+        packet: &mut Packet,
         mac_address: [u8; 6],
     ) -> Result<(), Error> {
         let from = self.current_os(packet).await?.map(|x| LowOS { id: x.id });

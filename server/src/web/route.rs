@@ -1,36 +1,121 @@
 use super::grub::adaptor::Convert;
 
 use super::{grub, state::AppState};
-use actix_web::{
-    body::{BoxBody, MessageBody},
-    http::header::ContentType,
-    post, web, HttpResponse, Responder,
-};
+use actix_session::SessionExt;
+use actix_web::dev::{Service, ServiceFactory, ServiceRequest, ServiceResponse};
+use actix_web::error::ErrorUnauthorized;
+use actix_web::{body::BoxBody, http::header::ContentType, post, web, HttpResponse, Responder};
+use actix_web::{Resource, Scope};
 use futures_lite::Future;
 use serde::Deserialize;
 use website;
 
-// #[post("/get/oss")]
-// async fn index(state: web::Data<AppState<'_>>, payload: web::Bytes) -> BinaryResponder {
-//     BinaryResponder::parse(async move {
-//         let payload: website::OsListReq = check_payload(payload)?;
-//         state
-//             .grub
-//             .list_os(&payload.mac_address)
-//             .await
-//             .convert()
-//             .await
-//             .map_err(|err| Error::InternalError(err))
-//     })
-//     .await
-// }
+pub async fn api_entry() -> Scope<
+    impl ServiceFactory<
+        ServiceRequest,
+        Config = (),
+        Response = ServiceResponse,
+        Error = actix_web::Error,
+        InitError = (),
+    >,
+> {
+    let state=AppState::new().await;
+    web::scope("/api")
+        .wrap_fn(|req, srv| {
+            let session = req.get_session();
+            let auth = match session.get::<bool>("auth") {
+                Ok(x) => match x {
+                    Some(x) => x,
+                    None => false,
+                },
+                Err(_) => false,
+            };
+            if auth {
+                srv.call(req)
+            } else {
+                session.clear();
+                Box::pin(async { Err(ErrorUnauthorized("unauthorized")) })
+            }
+        })
+        .app_data(state)
+        .service(boot)
+        .service(list_machine)
+        .service(list_os)
+        .service(info_machine)
+        .service(new_machine)
+}
+
+#[post("/op/boot")]
+async fn boot(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+    BinaryResponder::parse(async move {
+        let payload: website::BootReq = check_payload(payload)?;
+        state
+            .grub
+            .boot(payload.os, &payload.mac_address)
+            .await
+            .convert()
+            .await
+            .map_err(|err| Error::InternalError(err))
+    })
+    .await
+}
+
+#[post("/get/machines")]
+async fn list_machine(state: web::Data<AppState>) -> BinaryResponder {
+    BinaryResponder::parse(async move {
+        state
+            .grub
+            .list_machine()
+            .convert()
+            .await
+            .map_err(|err| Error::InternalError(err))
+    })
+    .await
+}
+
+#[post("/get/machine")]
+async fn info_machine(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+    BinaryResponder::parse(async move {
+        let payload: website::MachineInfoReq = check_payload(payload)?;
+        state
+            .grub
+            .info_machine(&payload.mac_address)
+            .await
+            .convert()
+            .await
+            .map_err(|err| Error::InternalError(err))
+    })
+    .await
+}
 
 #[post("/get/oss")]
-async fn index<'a>(state: web::Data<AppState<'a>>, payload: web::Bytes) -> BinaryResponder {
-    let payload: website::OsListReq = check_payload(payload).unwrap();
-    let handler = state.grub.list_os(&payload.mac_address).await;
-    let result = handler.convert().await;
-    result.map_err(|err| Error::InternalError(err)).into()
+async fn list_os(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+    BinaryResponder::parse(async move {
+        let payload: website::OsListReq = check_payload(payload)?;
+        state
+            .grub
+            .list_os(&payload.mac_address)
+            .await
+            .convert()
+            .await
+            .map_err(|err| Error::InternalError(err))
+    })
+    .await
+}
+
+#[post("/op/new")]
+async fn new_machine(state: web::Data<AppState>, payload: web::Bytes) -> BinaryResponder {
+    BinaryResponder::parse(async move {
+        let payload: website::NewMachineReq = check_payload(payload)?;
+        state
+            .grub
+            .init_machine(*payload.mac_address, payload.display_name.to_string())
+            .await
+            .convert()
+            .await
+            .map_err(|err| Error::InternalError(err))
+    })
+    .await
 }
 
 fn check_payload<T>(payload: web::Bytes) -> Result<T, Error>

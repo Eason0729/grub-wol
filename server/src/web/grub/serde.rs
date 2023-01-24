@@ -57,15 +57,15 @@ pub struct MachineSave {
 }
 
 #[async_trait]
-impl<'a> Serde<Machine<'a>> for MachineSave {
-    async fn serde(machine: &Machine<'a>) -> MachineSave {
+impl Serde<Machine> for MachineSave {
+    async fn serde(machine: &Machine) -> MachineSave {
         MachineSave {
             display_name: (&*machine.display_name.lock().await).clone(),
             mac_address: machine.mac_address.clone(),
             boot_graph: machine.boot_graph.clone(),
         }
     }
-    fn deserde(self) -> Machine<'a> {
+    fn deserde(self) -> Machine {
         Machine {
             display_name: Mutex::new(self.display_name),
             mac_address: self.mac_address,
@@ -81,8 +81,8 @@ pub struct ServerSave {
 }
 
 #[async_trait]
-impl<'a> Serde<Server<'a>> for ServerSave {
-    async fn serde(server: &Server<'a>) -> ServerSave {
+impl Serde<Server> for ServerSave {
+    async fn serde(server: &Server) -> ServerSave {
         let mut machines = IndexMap::new();
         for (mac, machine) in &*(server.machines.lock().await) {
             machines.insert(mac.clone(), MachineSave::serde(&**machine).await);
@@ -90,7 +90,7 @@ impl<'a> Serde<Server<'a>> for ServerSave {
         let machines = machines.into();
         ServerSave { machines }
     }
-    fn deserde(self) -> Server<'a> {
+    fn deserde(self) -> Server {
         let bind_host = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
         let socket = std::net::SocketAddr::new(bind_host, SERVER_PORT);
 

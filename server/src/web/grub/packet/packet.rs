@@ -1,4 +1,5 @@
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use std::{mem, time};
 
@@ -91,14 +92,14 @@ impl RawPacket {
 struct Info {
     mac_address: [u8; 6],
 }
-pub struct Packet<'a> {
-    manager: &'a Packets,
+pub struct Packet {
+    event_hook: Arc<EventHook<MacAddress, RawPacket>>,
     unused_receive: Mutex<HashVec<ReceivePacketType, host::Packet>>,
     info: Info,
     raw: RwLock<Option<RawPacket>>,
 }
 
-impl<'a> Packet<'a> {
+impl Packet {
     async fn read_packet(&self) -> Result<RwLockReadGuard<Option<RawPacket>>, Error> {
         let raw = self.raw.read().await;
         match &*raw {
@@ -185,7 +186,7 @@ impl<'a> Packet<'a> {
         // drop(packet1);
         // drop(packet);
 
-        let event_hook = &self.manager.event_hook;
+        let event_hook = &self.event_hook;
 
         let new_packet = event_hook
             .timeout(self.info.mac_address, time::Duration::from_secs(TIMEOUT))
@@ -231,30 +232,27 @@ impl<'a> Packet<'a> {
 
 #[derive(Default)]
 pub struct Packets {
-    event_hook: EventHook<MacAddress, RawPacket>,
+    event_hook: Arc<EventHook<MacAddress, RawPacket>>,
 }
 
 impl Packets {
-    pub async fn connect<'a>(
-        &'a self,
-        stream: net::TcpStream,
-    ) -> Result<Option<Packet<'a>>, Error> {
+    pub async fn connect(&self, stream: net::TcpStream) -> Result<Option<Packet>, Error> {
         let conn = Conn::from_tcp(stream);
         let (mac_address, raw_packet) = RawPacket::from_conn_handshake(conn).await?;
         match self.event_hook.signal(&mac_address, raw_packet) {
             Some(raw_packet) => Ok(Some(Packet {
                 unused_receive: Mutex::new(HashVec::default()),
-                manager: self,
+                event_hook: self.event_hook.clone(),
                 raw: RwLock::new(Some(raw_packet)),
                 info: Info { mac_address },
             })),
             None => Ok(None),
         }
     }
-    pub fn unconnected<'a>(&'a self, mac_address: [u8; 6]) -> Result<Packet<'a>, Error> {
+    pub fn unconnected(&self, mac_address: [u8; 6]) -> Result<Packet, Error> {
         Ok(Packet {
             unused_receive: Mutex::new(HashVec::default()),
-            manager: self,
+            event_hook: self.event_hook.clone(),
             raw: RwLock::new(None),
             info: Info { mac_address },
         })

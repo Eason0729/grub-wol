@@ -64,7 +64,7 @@ pub struct OsList<'a> {
 // // stc
 // pub type OsInfo<'a>=Option<OsInfoInner<'a>>;
 
-// get detailed info of an os
+// init new machine
 // POST /api/op/new
 // cts
 #[derive(Deserialize, Serialize)]

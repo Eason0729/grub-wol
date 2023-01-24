@@ -18,12 +18,12 @@ where
     async fn convert(self) -> Result<Vec<u8>, Error>;
 }
 
-pub struct OsListAdaptor<'a> {
-    pub(super) machine: Option<Arc<Machine<'a>>>,
+pub struct OsListAdaptor {
+    pub(super) machine: Option<Arc<Machine>>,
 }
 
 #[async_trait]
-impl<'a> Convert<website::OsList<'a>> for OsListAdaptor<'a> {
+impl<'a> Convert<website::OsList<'a>> for OsListAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         match self.machine {
             Some(machine) => {
@@ -42,12 +42,12 @@ impl<'a> Convert<website::OsList<'a>> for OsListAdaptor<'a> {
     }
 }
 
-pub struct MachineInfoAdaptor<'a> {
-    pub(super) machine: Option<Arc<Machine<'a>>>,
+pub struct MachineInfoAdaptor {
+    pub(super) machine: Option<Arc<Machine>>,
 }
 
 #[async_trait]
-impl<'a> Convert<website::MachineInfo<'a>> for MachineInfoAdaptor<'a> {
+impl<'a> Convert<website::MachineInfo<'a>> for MachineInfoAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         match self.machine {
             Some(machine) => {
@@ -70,12 +70,12 @@ impl<'a> Convert<website::MachineInfo<'a>> for MachineInfoAdaptor<'a> {
     }
 }
 
-pub struct MachineListAdaptor<'a, 'b> {
-    pub(super) server: &'a Server<'b>,
+pub struct MachineListAdaptor<'a> {
+    pub(super) server: &'a Server,
 }
 
 #[async_trait]
-impl<'a, 'b> Convert<website::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
+impl<'a> Convert<website::MachineList<'a>> for MachineListAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let mut machines = Vec::new();
         let server = self.server;
@@ -105,13 +105,13 @@ impl<'a, 'b> Convert<website::MachineList<'a>> for MachineListAdaptor<'a, 'b> {
     }
 }
 
-pub struct BootAdaptor<'a> {
+pub struct BootAdaptor {
     pub(super) os: website::OSState,
-    pub(super) machine: Option<Arc<Machine<'a>>>,
+    pub(super) machine: Option<Arc<Machine>>,
 }
 
 #[async_trait]
-impl<'a> Convert<website::BootRes> for BootAdaptor<'a> {
+impl Convert<website::BootRes> for BootAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let os = match self.os {
             website::OSState::Down => bootgraph::OSState::Down,
@@ -144,17 +144,14 @@ impl<'a> Convert<website::BootRes> for BootAdaptor<'a> {
     }
 }
 
-pub struct NewMachineAdaptor<'a, 'b> {
+pub struct NewMachineAdaptor<'a> {
     pub(super) display_name: String,
     pub(super) mac_address: [u8; 6],
-    pub(super) server: &'a Server<'b>,
+    pub(super) server: &'a Server,
 }
 
 #[async_trait]
-impl<'a, 'b> Convert<website::NewMachineRes> for NewMachineAdaptor<'a, 'b>
-where
-    'a: 'b,
-{
+impl<'a> Convert<website::NewMachineRes> for NewMachineAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         Ok(bincode::serialize(&match self
             .server

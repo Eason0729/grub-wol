@@ -1,6 +1,6 @@
 use std::{env, path::Path, sync::Arc};
 
-use super::grub::{prelude as grub, adaptor::Convert};
+use super::grub::{adaptor::Convert, prelude as grub};
 
 lazy_static! {
     static ref SAVE_PATH: &'static Path = Path::new("./");
@@ -8,12 +8,12 @@ lazy_static! {
 }
 
 #[derive(Clone)]
-pub struct AppState<'a> {
-    pub grub: Arc<grub::Server<'a>>,
+pub struct AppState {
+    pub grub: Arc<grub::Server>,
 }
 
-impl<'a> AppState<'a> {
-    pub async fn new() -> AppState<'a> {
+impl AppState {
+    pub async fn new() -> AppState {
         let grub_server = grub::Server::load(&SAVE_PATH).await.unwrap();
 
         AppState {

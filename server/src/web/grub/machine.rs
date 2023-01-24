@@ -74,15 +74,15 @@ where
     }
 }
 
-pub struct Server<'a> {
-    pub(super) machines: Mutex<IndexMap<MacAddress, Arc<Machine<'a>>>>,
+pub struct Server {
+    pub(super) machines: Mutex<IndexMap<MacAddress, Arc<Machine>>>,
     pub(super) packets: Packets,
-    pub(super) unknown_packet: Mutex<RingBuffer<Packet<'a>, 4>>,
+    pub(super) unknown_packet: Mutex<RingBuffer<Packet, 4>>,
     pub(super) socket: SocketAddr,
 }
 
-impl<'a> Server<'a> {
-    pub fn new(socket: SocketAddr) -> Server<'a> {
+impl Server {
+    pub fn new(socket: SocketAddr) -> Server {
         Self {
             machines: Default::default(),
             packets: Default::default(),
@@ -94,10 +94,10 @@ impl<'a> Server<'a> {
         ServerSave::save(&self, path).await;
         Ok(())
     }
-    pub async fn load(path: &Path) -> Result<Server<'a>, Error> {
+    pub async fn load(path: &Path) -> Result<Server, Error> {
         Ok(ServerSave::load(path).await)
     }
-    pub async fn start(&'a self) {
+    pub async fn start(&self) {
         let listener = net::TcpListener::bind(self.socket).await.unwrap();
         loop {
             let (stream, _) = listener.accept().await.unwrap();
@@ -109,7 +109,7 @@ impl<'a> Server<'a> {
             };
         }
     }
-    async fn connect_tcp(&'a self, stream: net::TcpStream) -> Result<(), Error> {
+    async fn connect_tcp(&self, stream: net::TcpStream) -> Result<(), Error> {
         let packet = match self.packets.connect(stream).await? {
             Some(x) => x,
             None => {
@@ -118,7 +118,7 @@ impl<'a> Server<'a> {
         };
         self.connect_packet(packet).await
     }
-    async fn connect_packet(&self, packet: Packet<'a>) -> Result<(), Error> {
+    async fn connect_packet(&self, packet: Packet) -> Result<(), Error> {
         let mac_address = packet.get_mac();
         if let Some(machine) = self.machines.lock().await.get_mut(&mac_address) {
             machine.connect(packet).await;
@@ -128,8 +128,8 @@ impl<'a> Server<'a> {
         }
         Ok(())
     }
-    pub async fn new_machine(
-        &'a self,
+    pub(super) async fn new_machine(
+        &self,
         mac: MacAddress,
         display_name: String,
     ) -> Result<bool, Error> {
@@ -146,44 +146,37 @@ impl<'a> Server<'a> {
             Ok(false)
         }
     }
-    async fn get_machine(&'a self, mac_address: &'a [u8; 6]) -> Option<Arc<Machine<'a>>> {
+    async fn get_machine(&self, mac_address: &[u8; 6]) -> Option<Arc<Machine>> {
         self.machines
             .lock()
             .await
             .get(mac_address)
             .map(|a| a.clone())
     }
-    pub async fn list_os<'b>(&'b self, mac_address: &'b [u8; 6]) -> adaptor::OsListAdaptor<'b>where 'b :'a {
+    pub async fn list_os(&self, mac_address: &[u8; 6]) -> adaptor::OsListAdaptor {
         adaptor::OsListAdaptor {
             machine: self.get_machine(mac_address).await,
         }
     }
-    pub async fn info_machine(
-        &'a self,
-        mac_address: &'a [u8; 6],
-    ) -> adaptor::MachineInfoAdaptor<'a> {
+    pub async fn info_machine(&self, mac_address: &[u8; 6]) -> adaptor::MachineInfoAdaptor {
         adaptor::MachineInfoAdaptor {
             machine: self.get_machine(mac_address).await,
         }
     }
-    pub fn list_machine(&'a self) -> adaptor::MachineListAdaptor<'a, 'a> {
+    pub fn list_machine<'a>(&'a self) -> adaptor::MachineListAdaptor<'a> {
         adaptor::MachineListAdaptor { server: self }
     }
-    pub async fn boot(
-        &'a self,
-        os: website::OSState,
-        mac_address: &'a [u8; 6],
-    ) -> adaptor::BootAdaptor {
+    pub async fn boot(&self, os: website::OSState, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {
         adaptor::BootAdaptor {
             os,
             machine: self.get_machine(mac_address).await,
         }
     }
-    pub async fn init_machine(
+    pub async fn init_machine<'a>(
         &'a self,
         mac_address: [u8; 6],
         display_name: String,
-    ) -> adaptor::NewMachineAdaptor<'a, 'a> {
+    ) -> adaptor::NewMachineAdaptor<'a> {
         adaptor::NewMachineAdaptor {
             display_name,
             mac_address,
@@ -192,15 +185,15 @@ impl<'a> Server<'a> {
     }
 }
 
-pub struct Machine<'a> {
+pub struct Machine {
     pub(super) display_name: Mutex<String>,
     pub(super) mac_address: MacAddress,
     pub(super) boot_graph: BootGraph,
-    pub(super) packet: Mutex<Option<Packet<'a>>>,
+    pub(super) packet: Mutex<Option<Packet>>,
 }
 
-impl<'a> Machine<'a> {
-    pub(super) async fn connect(&self, packet: Packet<'a>) -> Option<Packet<'a>> {
+impl Machine {
+    pub(super) async fn connect(&self, packet: Packet) -> Option<Packet> {
         let mut current_packet = self.packet.lock().await;
         match &*current_packet {
             Some(_) => Some(packet),
@@ -210,10 +203,10 @@ impl<'a> Machine<'a> {
             }
         }
     }
-    pub(super) async fn new<'b>(
-        packet: Packet<'b>,
+    pub(super) async fn new(
+        packet: Packet,
         display_name: String,
-    ) -> Result<(Machine, Packet<'_>), Error> {
+    ) -> Result<(Machine, Packet), Error> {
         let mac_address = packet.get_mac();
         let id_counter = 1;
         let mut boot_graph = IntBootGraph::new(packet, id_counter).await?;
@@ -279,4 +272,4 @@ where
     a: PhantomData<G>,
 }
 
-type tester_result<'a> = Tester<Server<'a>>;
+type tester_result = Tester<Server>;

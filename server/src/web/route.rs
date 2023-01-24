@@ -10,39 +10,13 @@ use futures_lite::Future;
 use serde::Deserialize;
 use website;
 
-pub async fn api_entry() -> Scope<
-    impl ServiceFactory<
-        ServiceRequest,
-        Config = (),
-        Response = ServiceResponse,
-        Error = actix_web::Error,
-        InitError = (),
-    >,
-> {
-    let state=AppState::new().await;
-    web::scope("/api")
-        .wrap_fn(|req, srv| {
-            let session = req.get_session();
-            let auth = match session.get::<bool>("auth") {
-                Ok(x) => match x {
-                    Some(x) => x,
-                    None => false,
-                },
-                Err(_) => false,
-            };
-            if auth {
-                srv.call(req)
-            } else {
-                session.clear();
-                Box::pin(async { Err(ErrorUnauthorized("unauthorized")) })
-            }
-        })
-        .app_data(state)
+pub fn api_entry(cfg: &mut web::ServiceConfig) {
+    cfg
         .service(boot)
         .service(list_machine)
         .service(list_os)
         .service(info_machine)
-        .service(new_machine)
+        .service(new_machine);
 }
 
 #[post("/op/boot")]

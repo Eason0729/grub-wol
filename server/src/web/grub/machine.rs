@@ -97,11 +97,11 @@ impl Server {
     pub async fn load(path: &Path) -> Result<Server, Error> {
         Ok(ServerSave::load(path).await)
     }
-    pub async fn start(&self) {
-        let listener = net::TcpListener::bind(self.socket).await.unwrap();
+    pub async fn start(self_:Arc<Self>) {
+        let listener = net::TcpListener::bind(self_.socket).await.unwrap();
         loop {
             let (stream, _) = listener.accept().await.unwrap();
-            match self.connect_tcp(stream).await {
+            match self_.connect_tcp(stream).await {
                 Ok(_) => {}
                 Err(err) => {
                     warn!("{:?}", err);

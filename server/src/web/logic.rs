@@ -43,38 +43,31 @@ async fn start() -> Result<(), Error> {
         let mut api = tide::with_state(State::new().await);
         api.with(AuthMiddleware::new());
         api.at("/op/boot")
-            .post(|mut req: Request<State>| async move {
-                let state = req.state().clone()();
-
-                let body = req.body_bytes().await?;
-                let param: web::BootReq = bincode::deserialize_from(body.as_slice())
-                    .map_err(|_| tide::Error::from_str(400, "Deserialization Error"))?;
-
-                let response = state
-                    .grub()
-                    .boot(
-                        param.os,
-                        param
-                            .mac_address
-                            .try_into()
-                            .map_err(|_| tide::Error::from_str(400, "Deserialization Error"))?,
-                    )
-                    .await
-                    .convert()
-                    .await;
-
-                match response {
-                    Ok(x) => Ok(Response::builder(203)
-                        .body(x)
-                        .content_type(mime::ANY)
-                        .build()),
-                    Err(e) => Err(tide::Error::from_str(500, e)),
-                }
-            });
+            .post(my_test);
         api
     });
     app.listen("127.0.0.1:8000").await?;
     Ok(())
+}
+async fn my_test(mut req: Request<State<'_>>)->tide::Result<Response>{
+    let body = req.body_bytes().await?;
+    let param: web::BootReq = bincode::deserialize_from(body.as_slice())
+        .map_err(|_| tide::Error::from_str(400, "Deserialization Error"))?;
+    let state=req.state().clone();
+
+    let response = state.grub
+        .boot(param.os, &param.mac_address)
+        .await
+        .convert()
+        .await;
+
+    match response {
+        Ok(x) => Ok(Response::builder(203)
+            .body(x)
+            .content_type(mime::ANY)
+            .build()),
+        Err(e) => Err(tide::Error::from_str(500, e)),
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

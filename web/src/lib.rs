@@ -6,9 +6,8 @@ use serde::{Deserialize, Serialize};
 // POST /api/op/boot
 // cts
 #[derive(Deserialize, Serialize)]
-pub struct BootReq<'a> {
-    #[serde(borrow)]
-    pub mac_address: &'a [u8],
+pub struct BootReq {
+    pub mac_address: [u8;6],
     pub os: OSState,
 }
 // stc

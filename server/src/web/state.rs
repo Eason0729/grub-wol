@@ -11,31 +11,18 @@ lazy_static! {
     static ref PASSWORD: String = env::var("password").unwrap();
 }
 
-struct StateInner<'a> {
-    pub grub: grub::Server<'a>,
-}
-
-impl<'a> StateInner<'a> {
-    async fn new() -> StateInner<'a> {
-        let grub_server = grub::Server::load(&SAVE_PATH).await.unwrap();
-
-        StateInner { grub: grub_server }
-    }
-}
-
 #[derive(Clone)]
 pub struct State<'a> {
-    state: Arc<StateInner<'a>>,
+    pub grub: Arc<grub::Server<'a>>,
 }
 
 impl<'a> State<'a> {
     pub async fn new() -> State<'a> {
+        let grub_server = grub::Server::load(&SAVE_PATH).await.unwrap();
+
         State {
-            state: Arc::new(StateInner::new().await),
+            grub:Arc::new(grub_server)
         }
-    }
-    pub fn grub(&self) -> &grub::Server<'a> {
-        &self.state.grub
     }
 }
 

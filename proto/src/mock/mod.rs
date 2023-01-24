@@ -1,6 +1,4 @@
 // edit from https://hackmd.io/@lbernick/SkgO7bCMw
-use async_std::io::{Read, Write};
-use async_std::io::{ReadExt, WriteExt};
 use std::io;
 use std::{
     collections::VecDeque,
@@ -9,17 +7,19 @@ use std::{
     task::{self, Poll},
 };
 
+use tokio::io::{AsyncRead, AsyncWrite};
+
 pub struct MockTcpStream {
     writer: Option<Arc<Mutex<VecDeque<u8>>>>,
     reader: Option<Arc<Mutex<VecDeque<u8>>>>,
 }
 
-impl Write for MockTcpStream {
+impl AsyncWrite for MockTcpStream {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<Result<usize, io::Error>> {
         match &self.writer {
             Some(writer) => {
                 let mut writer = writer.lock().unwrap();
@@ -30,27 +30,32 @@ impl Write for MockTcpStream {
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Result<(), io::Error>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {
         self.reader = None;
         Poll::Ready(Ok(()))
     }
 }
 
-impl Read for MockTcpStream {
+impl AsyncRead for MockTcpStream {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         match &self.reader {
             Some(reader) => {
                 let mut reader = reader.lock().unwrap();
-                let size = io::Read::read(&mut *reader, buf).unwrap();
-                Poll::Ready(Ok(size))
+                let mut slice=vec![0;1024];
+                let size = io::Read::read(&mut *reader, &mut slice).unwrap();
+                buf.put_slice(&slice[0..size]);
+                Poll::Ready(Ok(()))
             }
             None => Poll::Ready(Err(io::Error::from(io::ErrorKind::BrokenPipe))),
         }

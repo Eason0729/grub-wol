@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct BootReq {
-    pub mac_address: [u8;6],
+    pub mac_address: [u8; 6],
     pub os: OSState,
 }
 // stc
@@ -15,7 +15,7 @@ pub struct BootReq {
 pub enum BootRes {
     Success,
     Fail,
-    NotFound
+    NotFound,
 }
 
 // get a list of machine
@@ -32,24 +32,24 @@ pub struct MachineList<'a> {
 // POST /api/get/machine
 // cts
 #[derive(Deserialize, Serialize)]
-pub struct MachineInfoReq <'a>{
+pub struct MachineInfoReq<'a> {
     #[serde(borrow)]
     pub mac_address: &'a [u8],
 }
 // stc
 // return type is wrapped in option
-pub type MachineInfo<'a>=Option<MachineInfoInner<'a>>;
+pub type MachineInfo<'a> = Option<MachineInfoInner<'a>>;
 
 // get a list of os
 // POST /api/get/oss
 // cts
-#[derive(Deserialize,Serialize)]
-pub struct OsListReq<'a>{
+#[derive(Deserialize, Serialize)]
+pub struct OsListReq<'a> {
     #[serde(borrow)]
-    pub mac_address:&'a  [u8],
+    pub mac_address: &'a [u8],
 }
 // stc
-#[derive(Deserialize,Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct OsList<'a> {
     #[serde(borrow)]
     pub oss: Vec<OsInfoInner<'a>>,
@@ -70,8 +70,8 @@ pub struct OsList<'a> {
 // POST /api/op/new
 // cts
 #[derive(Deserialize, Serialize)]
-pub struct NewMachineReq<'a>{
-    pub display_name:&'a str,
+pub struct NewMachineReq<'a> {
+    pub display_name: &'a str,
     pub mac_address: [u8; 6],
 }
 // stc
@@ -79,13 +79,13 @@ pub struct NewMachineReq<'a>{
 pub enum NewMachineRes {
     Success,
     Fail,
-    NotFound
+    NotFound,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct MachineInfoInner<'a> {
     #[serde(borrow)]
-    pub mac_address:&'a[u8],
+    pub mac_address: &'a [u8],
     pub state: MachineState,
 }
 
@@ -97,7 +97,7 @@ pub enum MachineState {
 }
 
 #[derive(Deserialize, Serialize)]
-pub enum OSState{
+pub enum OSState {
     Down,
     Up(ID),
 }

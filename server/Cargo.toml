@@ -23,19 +23,27 @@ thiserror = "1.0.37"
 log = "0.4.17"
 bincode = "1.3.3"
 futures-lite = "1.12.0"
-tide = "0.15.1"
 simple_logger = "4.0.0"
 rand = "0.8.5"
 lazy_static = "1.4.0"
 async-trait = "0.1.62"
 
+[dependencies.tokio]
+version = "1.24.2"
+features = ["rt-multi-thread","io-util","net","macros","sync","signal","fs"]
+
+[dependencies.actix-web]
+version = "4.3.0"
+default-features = false
+features = ["cookies","macros"]
+
+[dependencies.actix-session] 
+version = "0.7.2"
+features = ["cookie-session"] 
+
 [dependencies.serde]
 version = "1.0.152"
 features = ["derive"]
-
-[dependencies.async-std]
-version = "1.12.0"
-features = ["attributes"]
 
 [dependencies.indexmap]
 version = "1.9.2"

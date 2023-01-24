@@ -1,5 +1,6 @@
 use super::adaptor;
-use async_std::sync::Mutex;
+use tokio::net;
+use tokio::sync::Mutex;
 use web;
 // TODO: fix mutability(RefCell maybe!)
 use super::packet::{self, Packet, Packets};
@@ -7,8 +8,6 @@ use super::packet::{self, Packet, Packets};
 use super::bootgraph::{self, *};
 use super::serde::{Serde, ServerSave};
 
-use async_std::io::ReadExt;
-use async_std::net;
 use indexmap::IndexMap;
 use log::{info, warn};
 use proto::prelude as protocal;
@@ -79,7 +78,7 @@ pub struct Server<'a> {
     pub(super) machines: Mutex<IndexMap<MacAddress, Arc<Machine<'a>>>>,
     pub(super) packets: Packets,
     pub(super) unknown_packet: Mutex<RingBuffer<Packet<'a>, 4>>,
-    pub(super) socket: net::SocketAddr,
+    pub(super) socket: SocketAddr,
 }
 
 impl<'a> Server<'a> {

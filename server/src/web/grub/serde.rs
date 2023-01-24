@@ -5,15 +5,10 @@ use std::{
 };
 
 use ::serde::{Deserialize, Serialize};
-use async_std::{
-    fs::File,
-    io::{ReadExt, WriteExt},
-    net,
-    sync::Mutex,
-};
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use proto::prelude::SERVER_PORT;
+use tokio::{fs::File, sync::Mutex, net, io::{AsyncReadExt, AsyncWriteExt}};
 
 use super::{
     bootgraph::BootGraph,
@@ -92,7 +87,7 @@ impl<'a> Serde<Server<'a>> for ServerSave {
     }
     fn deserde(self) -> Server<'a> {
         let bind_host = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-        let socket = net::SocketAddr::new(bind_host, SERVER_PORT);
+        let socket = std::net::SocketAddr::new(bind_host, SERVER_PORT);
 
         let machines = self
             .machines

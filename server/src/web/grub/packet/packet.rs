@@ -5,13 +5,12 @@ use std::{mem, time};
 use super::event::EventHook;
 use super::hashvec::HashVec;
 use super::wol;
-use async_std::future::timeout;
-use async_std::net;
-use async_std::prelude::FutureExt;
-use async_std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use futures_lite::Future;
 use proto::prelude::packets as PacketType;
 use proto::prelude::{self as protocal, host, server};
+use tokio::net;
+use tokio::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tokio::time::timeout;
 type MacAddress = [u8; 6];
 
 type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;

@@ -8,9 +8,8 @@ use std::task::{self, Poll};
 use std::time;
 use std::{collections::*, future::Future};
 
-use async_std::future::timeout;
-use async_std::task::sleep;
 use futures_lite::future::race;
+use tokio::time::{sleep, timeout};
 
 use super::hashvec::*;
 
@@ -242,11 +241,11 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use async_std::task::spawn;
+    use tokio::spawn;
 
     use super::*;
 
-    #[async_std::test]
+    #[tokio::test]
     async fn signal() {
         let event_q = Arc::new(EventHook::default());
         let output = Arc::new(AtomicUsize::new(0));
@@ -276,7 +275,7 @@ mod test {
         }
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn timeout() {
         let event_q = Arc::new(EventHook::<(), ()>::default());
         let output = Arc::new(AtomicUsize::new(0));

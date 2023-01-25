@@ -38,7 +38,8 @@ async fn main() {
         api.at("/get/machine").post(route::info_machine);
         api.at("/get/oss").post(route::list_os);
         api.at("/op/new").post(route::new_machine);
-        api.at("/auth").get(|_| async { Ok("User is authenticated") });
+        api.at("/auth")
+            .get(|_| async { Ok("User is authenticated") });
         api
     });
     app.at("/").serve_dir("static").unwrap();

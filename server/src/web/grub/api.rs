@@ -14,6 +14,7 @@ pub struct BootReq<'a> {
 }
 // stc
 #[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum BootRes {
     Success,
     Fail,
@@ -74,6 +75,7 @@ pub struct NewMachineReq<'a> {
 }
 // stc
 #[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum NewMachineRes {
     Success,
     Fail,
@@ -81,7 +83,7 @@ pub enum NewMachineRes {
 }
 
 // login
-// POST /auth
+// POST /login
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct LoginReq<'a> {
@@ -89,6 +91,7 @@ pub struct LoginReq<'a> {
 }
 // stc
 #[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum LoginRes {
     Success,
     Fail,
@@ -101,6 +104,7 @@ pub struct MachineInfoInner<'a> {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum MachineState {
     Down,
     Uninited,
@@ -108,6 +112,7 @@ pub enum MachineState {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
 pub enum OSState {
     Down,
     Up(ID),

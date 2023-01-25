@@ -1,7 +1,6 @@
 // dummy client
 use async_std::{
     net::{self, UdpSocket},
-    sync::Mutex,
     task::sleep,
 };
 use proto::prelude::*;

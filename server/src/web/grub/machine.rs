@@ -1,8 +1,7 @@
-use super::adaptor;
 use super::packet::{self, Packet, Packets};
+use super::{adaptor, api};
 use async_std::net;
 use async_std::sync::Mutex;
-use website;
 
 use super::bootgraph::{self, *};
 use super::serde::{Serde, ServerSave};
@@ -164,10 +163,10 @@ impl Server {
             machine: self.get_machine(mac_address).await,
         }
     }
-    pub fn list_machine(& self) -> adaptor::MachineListAdaptor {
+    pub fn list_machine(&self) -> adaptor::MachineListAdaptor {
         adaptor::MachineListAdaptor { server: self }
     }
-    pub async fn boot(&self, os: website::OSState, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {
+    pub async fn boot(&self, os: api::OSState, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {
         adaptor::BootAdaptor {
             os,
             machine: self.get_machine(mac_address).await,

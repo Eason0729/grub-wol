@@ -1,5 +1,6 @@
 use super::grub::adaptor::Convert;
 
+use super::grub::api;
 use super::{grub, state::AppState};
 use async_trait::async_trait;
 use bincode::config::{Bounded, WithOtherLimit};
@@ -7,7 +8,6 @@ use bincode::{DefaultOptions, Options};
 use futures_lite::Future;
 use serde::Deserialize;
 use tide::{Middleware, Next, Request, Response};
-use website;
 
 lazy_static! {
     static ref BINCODE: WithOtherLimit<DefaultOptions, Bounded> = bincode::DefaultOptions::new().with_limit(4096);
@@ -18,7 +18,7 @@ lazy_static! {
 pub async fn boot(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
         let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
-        let payload: website::BootReq = check_payload(payload)?;
+        let payload: api::BootReq = check_payload(payload)?;
         let state = req.state();
         state
             .grub
@@ -47,7 +47,7 @@ pub async fn list_machine(req: Request<AppState>) -> Result<Response, tide::Erro
 pub async fn info_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
         let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
-        let payload: website::MachineInfoReq = check_payload(payload)?;
+        let payload: api::MachineInfoReq = check_payload(payload)?;
         let state = req.state();
         state
             .grub
@@ -63,7 +63,7 @@ pub async fn info_machine(mut req: Request<AppState>) -> Result<Response, tide::
 pub async fn list_os(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
         let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
-        let payload: website::OsListReq = check_payload(payload)?;
+        let payload: api::OsListReq = check_payload(payload)?;
         let state = req.state();
         state
             .grub
@@ -79,7 +79,7 @@ pub async fn list_os(mut req: Request<AppState>) -> Result<Response, tide::Error
 pub async fn new_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
         let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
-        let payload: website::NewMachineReq = check_payload(payload)?;
+        let payload: api::NewMachineReq = check_payload(payload)?;
         let state = req.state();
         state
             .grub
@@ -95,15 +95,15 @@ pub async fn new_machine(mut req: Request<AppState>) -> Result<Response, tide::E
 pub async fn login(mut req: Request<()>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
         let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
-        let payload: website::LoginReq = check_payload(payload)?;
+        let payload: api::LoginReq = check_payload(payload)?;
 
         Ok(bincode::serialize(&if payload.password == *PASSWORD {
-            req.session_mut().insert("authed", true).map_err(|_| {
-                Error::Tide(tide::Error::from_str(500, "Error inserting session"))
-            })?;
-            website::LoginRes::Success
+            req.session_mut()
+                .insert("authed", true)
+                .map_err(|_| Error::Tide(tide::Error::from_str(500, "Error inserting session")))?;
+            api::LoginRes::Success
         } else {
-            website::LoginRes::Fail
+            api::LoginRes::Fail
         })
         .unwrap())
     })
@@ -131,9 +131,7 @@ where
     if payload.len() > 1024 {
         Err(Error::EntityTooLarge)
     } else {
-        BINCODE
-            .deserialize(&payload)
-            .map_err(|err| Error::Deserialize(err))
+        serde_json::from_slice(&payload).map_err(|err| Error::Deserialize(err))
     }
 }
 
@@ -145,7 +143,7 @@ enum BinaryResponder {
 #[derive(thiserror::Error, Debug)]
 enum Error {
     #[error("Deserialize Error")]
-    Deserialize(bincode::Error),
+    Deserialize(serde_json::Error),
     #[error("Internal Error")]
     Internal(grub::Error),
     #[error("Tide Error")]

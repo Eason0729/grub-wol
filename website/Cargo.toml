@@ -11,6 +11,8 @@ path = "./../proto"
 [dependencies]
 yew = { version="0.20", features=["csr"] }
 bincode = "1.3.3"
+yew-router = "0.17.0"
+ybc = "0.2.1"
 
 [dependencies.serde]
 version = "1.0.152"

@@ -1,24 +1,48 @@
+pub mod route;
+
+use route::prelude::*;
 use yew::prelude::*;
+use yew_router::{BrowserRouter, Routable, Switch};
 
-#[function_component]
-fn App() -> Html {
-    let counter = use_state(|| 0);
-    let onclick = {
-        let counter = counter.clone();
-        move |_| {
-            let value = *counter + 1;
-            counter.set(value);
-        }
-    };
+#[derive(Clone, Routable, PartialEq)]
+enum Route {
+    #[not_found]
+    #[at("/login")]
+    Login,
+    #[at("/forbidden")]
+    Forbidden,
+    #[at("/control")]
+    Control,
+}
 
+#[function_component(Forbidden)]
+fn forbidden() -> Html {
+    todo!()
+}
+
+fn switch(routes: Route) -> Html {
+    match routes {
+        Route::Login => html! {
+            <Login />
+        },
+        Route::Forbidden => html! {
+            <Forbidden />
+        },
+        Route::Control => html! {
+            <Control />
+        },
+    }
+}
+
+#[function_component(Main)]
+fn app() -> Html {
     html! {
-        <div>
-            <button {onclick}>{ "+1" }</button>
-            <p>{ *counter }</p>
-        </div>
+        <BrowserRouter>
+            <Switch<Route> render={switch} /> // <- must be child of <BrowserRouter>
+        </BrowserRouter>
     }
 }
 
 fn main() {
-    yew::Renderer::<App>::new().render();
+    yew::Renderer::<Main>::new().render();
 }

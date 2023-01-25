@@ -17,7 +17,7 @@ lazy_static! {
 
 pub async fn boot(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
-        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
         let payload: website::BootReq = check_payload(payload)?;
         let state = req.state();
         state
@@ -26,7 +26,7 @@ pub async fn boot(mut req: Request<AppState>) -> Result<Response, tide::Error> {
             .await
             .convert()
             .await
-            .map_err(|err| Error::InternalError(err))
+            .map_err(|err| Error::Internal(err))
     })
     .await
 }
@@ -39,14 +39,14 @@ pub async fn list_machine(req: Request<AppState>) -> Result<Response, tide::Erro
             .list_machine()
             .convert()
             .await
-            .map_err(|err| Error::InternalError(err))
+            .map_err(|err| Error::Internal(err))
     })
     .await
 }
 
 pub async fn info_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
-        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
         let payload: website::MachineInfoReq = check_payload(payload)?;
         let state = req.state();
         state
@@ -55,14 +55,14 @@ pub async fn info_machine(mut req: Request<AppState>) -> Result<Response, tide::
             .await
             .convert()
             .await
-            .map_err(|err| Error::InternalError(err))
+            .map_err(|err| Error::Internal(err))
     })
     .await
 }
 
 pub async fn list_os(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
-        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
         let payload: website::OsListReq = check_payload(payload)?;
         let state = req.state();
         state
@@ -71,14 +71,14 @@ pub async fn list_os(mut req: Request<AppState>) -> Result<Response, tide::Error
             .await
             .convert()
             .await
-            .map_err(|err| Error::InternalError(err))
+            .map_err(|err| Error::Internal(err))
     })
     .await
 }
 
 pub async fn new_machine(mut req: Request<AppState>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
-        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
         let payload: website::NewMachineReq = check_payload(payload)?;
         let state = req.state();
         state
@@ -87,19 +87,19 @@ pub async fn new_machine(mut req: Request<AppState>) -> Result<Response, tide::E
             .await
             .convert()
             .await
-            .map_err(|err| Error::InternalError(err))
+            .map_err(|err| Error::Internal(err))
     })
     .await
 }
 
 pub async fn login(mut req: Request<()>) -> Result<Response, tide::Error> {
     BinaryResponder::parse(async move {
-        let payload = req.body_bytes().await.map_err(|e| Error::TideError(e))?;
+        let payload = req.body_bytes().await.map_err(|e| Error::Tide(e))?;
         let payload: website::LoginReq = check_payload(payload)?;
 
         Ok(bincode::serialize(&if payload.password == *PASSWORD {
             req.session_mut().insert("authed", true).map_err(|_| {
-                Error::TideError(tide::Error::from_str(500, "Error inserting session"))
+                Error::Tide(tide::Error::from_str(500, "Error inserting session"))
             })?;
             website::LoginRes::Success
         } else {
@@ -133,7 +133,7 @@ where
     } else {
         BINCODE
             .deserialize(&payload)
-            .map_err(|err| Error::DeserializeError(err))
+            .map_err(|err| Error::Deserialize(err))
     }
 }
 
@@ -145,11 +145,11 @@ enum BinaryResponder {
 #[derive(thiserror::Error, Debug)]
 enum Error {
     #[error("Deserialize Error")]
-    DeserializeError(bincode::Error),
+    Deserialize(bincode::Error),
     #[error("Internal Error")]
-    InternalError(grub::Error),
+    Internal(grub::Error),
     #[error("Tide Error")]
-    TideError(tide::Error),
+    Tide(tide::Error),
     #[error("Entity Too Large")]
     EntityTooLarge,
 }
@@ -168,13 +168,13 @@ impl BinaryResponder {
                 .content_type("application/octet-stream")
                 .build(),
             BinaryResponder::Err(err) => match err {
-                Error::DeserializeError(err) => {
+                Error::Deserialize(err) => {
                     log::warn!("Error deserializing data from client: {}", err);
                     Response::builder(400)
                         .body("See log for more infomation")
                         .build()
                 }
-                Error::InternalError(err) => {
+                Error::Internal(err) => {
                     match err {
                         grub::Error::UndefinedClientBehavior => {
                             log::warn!("Client(host) behavior falsely")
@@ -191,7 +191,7 @@ impl BinaryResponder {
                         .body("See log for more infomation")
                         .build()
                 }
-                Error::TideError(err) => {
+                Error::Tide(err) => {
                     log::error!("unexpected tide error: {:?}", err);
                     Response::builder(500)
                         .body("See log for more infomation")

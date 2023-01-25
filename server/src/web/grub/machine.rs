@@ -164,7 +164,7 @@ impl Server {
             machine: self.get_machine(mac_address).await,
         }
     }
-    pub fn list_machine<'a>(&'a self) -> adaptor::MachineListAdaptor<'a> {
+    pub fn list_machine(& self) -> adaptor::MachineListAdaptor {
         adaptor::MachineListAdaptor { server: self }
     }
     pub async fn boot(&self, os: website::OSState, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {

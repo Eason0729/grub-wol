@@ -14,7 +14,10 @@ use crate::web::route;
 
 #[async_std::main]
 async fn main() {
+    #[cfg(debug_assertions)]
     SimpleLogger::new().init().unwrap();
+    #[cfg(not(debug_assertions))]
+    simple_logger::init_with_level(log::Level::Info).unwrap();
 
     let app_state = AppState::new().await;
     app_state.start_grub();

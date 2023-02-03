@@ -996,6 +996,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
+name = "monostate"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd8e29c166cd22fbcbddad7197de0e416d374b0e638c7420e632d18e713cbf1f"
+dependencies = [
+ "monostate-impl",
+ "serde",
+]
+
+[[package]]
+name = "monostate-impl"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afc4131cdada28f14bf46129ef11e756089d5f4e89a0f8327945ca648f5c8a24"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "num-integer"
 version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1351,6 +1372,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "log",
+ "monostate",
  "proto",
  "rand 0.8.5",
  "serde",

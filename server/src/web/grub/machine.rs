@@ -166,7 +166,7 @@ impl Server {
     pub fn list_machine(&self) -> adaptor::MachineListAdaptor {
         adaptor::MachineListAdaptor { server: self }
     }
-    pub async fn boot(&self, os: api::OSState, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {
+    pub async fn boot(&self, os: api::OSStatus, mac_address: &[u8; 6]) -> adaptor::BootAdaptor {
         adaptor::BootAdaptor {
             os,
             machine: self.get_machine(mac_address).await,
@@ -229,8 +229,8 @@ impl Machine {
         let packet = &mut *packet1;
         Ok(match packet {
             Some(packet) => match self.boot_graph.current_os(packet).await? {
-                OSState::Down => None,
-                OSState::Up(os) => Some(os.id),
+                OSStatus::Down => None,
+                OSStatus::Up(os) => Some(os.id),
             },
             None => None,
         })

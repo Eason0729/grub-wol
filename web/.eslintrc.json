@@ -1,0 +1,16 @@
+{
+  "plugins": ["only-warn", "decorator-position"],
+
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "extends": ["standard-with-typescript", "plugin:decorator-position/ember"],
+  "overrides": [],
+  "parserOptions": {
+    "project": ["web/tsconfig.json"],
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {}
+}

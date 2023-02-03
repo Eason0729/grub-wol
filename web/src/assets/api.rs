@@ -114,6 +114,7 @@ pub enum MachineState {
         kind:MustBe!("Uninited"),
     },
     Up{
+        kind:MustBe!("Up"),
         id:ID
     },
 }

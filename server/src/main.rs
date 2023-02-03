@@ -7,7 +7,6 @@ extern crate lazy_static;
 mod test;
 pub mod web;
 use rand::Rng;
-use simple_logger::SimpleLogger;
 use web::prelude::*;
 
 use crate::web::route;
@@ -15,7 +14,7 @@ use crate::web::route;
 #[async_std::main]
 async fn main() {
     #[cfg(debug_assertions)]
-    SimpleLogger::new().init().unwrap();
+    simple_logger::init_with_env().unwrap();
     #[cfg(not(debug_assertions))]
     simple_logger::init_with_level(log::Level::Info).unwrap();
 

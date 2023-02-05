@@ -1,0 +1,2 @@
+#!/bin/bash
+cargo test --bin server -- test::test_main --exact --nocapture 

@@ -95,7 +95,10 @@ impl<'a> Convert<api::MachineList<'a>> for MachineListAdaptor<'a> {
         }
 
         let unknown_src = server.unknown_packet.lock().await;
-        let unknown_mac: Vec<[u8; 6]> = unknown_src.iter().map(|p| p.get_mac()).collect();
+        let unknown_mac: Vec<[u8; 6]> = unknown_src
+            .iter()
+            .map(|p| p.get_mac_address().clone())
+            .collect();
         unknown_mac.iter().for_each(|mac_address| {
             machines.push(api::MachineInfoInner {
                 display_name: None,

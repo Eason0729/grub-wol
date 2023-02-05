@@ -10,6 +10,7 @@ pub struct MagicPacket {
 
 impl MagicPacket {
     pub fn new(mac_address: &[u8; 6]) -> MagicPacket {
+        log::debug!("construct MagicPacket of {:#?}", mac_address);
         MagicPacket {
             packet: {
                 let mac_address: &[u8; 6] = &mac_address;
@@ -26,7 +27,6 @@ impl MagicPacket {
         }
     }
     pub async fn send(&self) {
-        println!("user  : sending MagicPacket");
         let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.unwrap();
         socket.set_broadcast(true).unwrap();
         socket

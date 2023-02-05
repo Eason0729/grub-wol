@@ -1,292 +1,366 @@
-use std::sync::Arc;
-use std::time;
-use std::time::Duration;
-
-use super::event::EventHook;
-use super::hashvec::HashVec;
-use super::wol;
 use async_std::{
+    channel,
     future::timeout,
-    net,
-    sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    task::sleep,
+    io, net,
+    sync::{Mutex, RwLock},
+    task::{sleep, spawn},
 };
-use futures_lite::future::race;
-use proto::prelude::packets as PacketType;
-use proto::prelude::{self as protocal, host, server};
-type MacAddress = [u8; 6];
+use futures_lite::{future::or, Future};
+use paste::paste;
+use proto::prelude::{
+    packets::host::Packet as HostP, packets::server::Packet as ServerP, Connection, ID,
+};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
-type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Packet>;
+use super::{event::EventHook, hashvec::HashVec, wol::MagicPacket};
 
-const TIMEOUTLONG: u64 = 3600;
-const TIMEOUT: u64 = 180;
-const TIMEOUTSHORT: u64 = 50;
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+macro_rules! UnwrapEnum {
+    ($e:expr,$l:path) => {
+        if let $l(a) = $e {
+            a
+        } else {
+            panic!("mismatch enum when unwrapping {}", stringify!($pat)); // #2
+        }
+    };
+}
 
 #[derive(Hash, Eq, PartialEq, Clone)]
-pub enum ReceivePacketType {
+pub enum HostPTy {
     GrubQuery,
     Ping,
-    Invaild,
+    Handshake,
     Reboot,
     InitId,
     ShutDown,
     OsQuery,
 }
 
-impl ReceivePacketType {
-    fn from_packet(packet: &host::Packet) -> Self {
+impl HostPTy {
+    fn from_packet(packet: &HostP) -> Self {
         match packet {
-            host::Packet::Handshake(_) => ReceivePacketType::Invaild,
-            host::Packet::GrubQuery(_) => ReceivePacketType::GrubQuery,
-            host::Packet::Ping(_) => ReceivePacketType::Ping,
-            host::Packet::Reboot => ReceivePacketType::Reboot,
-            host::Packet::InitId => ReceivePacketType::InitId,
-            host::Packet::ShutDown => ReceivePacketType::ShutDown,
-            host::Packet::OsQuery(_) => ReceivePacketType::OsQuery,
+            HostP::Handshake(_) => HostPTy::Handshake,
+            HostP::GrubQuery(_) => HostPTy::GrubQuery,
+            HostP::Ping(_) => HostPTy::Ping,
+            HostP::Reboot => HostPTy::Reboot,
+            HostP::InitId => HostPTy::InitId,
+            HostP::ShutDown => HostPTy::ShutDown,
+            HostP::OsQuery(_) => HostPTy::OsQuery,
         }
     }
 }
 
-struct RawPacket {
-    conn: Conn,
-    uid: protocal::ID,
+struct PacketIo<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt,
+{
+    conn: Connection<ServerP, HostP, T, T>,
+    read_buffer: HashVec<HostPTy, HostP>,
 }
 
 #[cfg(debug_assertions)]
-impl Drop for RawPacket {
+impl<T> Drop for PacketIo<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt,
+{
     fn drop(&mut self) {
-        log::info!("RawPacket drop here");
-    }
-}
-impl RawPacket {
-    async fn from_conn_handshake(mut conn: Conn) -> Result<([u8; 6], Self), Error> {
-        if let host::Packet::Handshake(handshake) =
-            conn.read().await.map_err(|_| Error::UnknownProtocal)?
-        {
-            Self::from_handshake(conn, handshake).await
-        } else {
-            Err(Error::UnknownProtocal)
-        }
-    }
-
-    async fn from_handshake(
-        mut conn: Conn,
-        handshake: host::Handshake,
-    ) -> Result<([u8; 6], Self), Error> {
-        if handshake.ident != protocal::PROTO_IDENT {
-            return Err(Error::UnknownProtocal);
-        }
-        if handshake.version != protocal::APIVERSION {
-            return Err(Error::IncompatibleVersion);
-        }
-        let mac_address = handshake.mac_address;
-        let uid = handshake.uid;
-
-        let server_handshake = server::Handshake {
-            ident: protocal::PROTO_IDENT,
-            version: protocal::APIVERSION,
-        };
-
-        conn.send(server::Packet::Handshake(server_handshake))
-            .await
-            .map_err(|_| Error::UnknownProtocal)?;
-
-        Ok((mac_address, Self { conn, uid }))
-    }
-    fn fake_uid(&mut self, uid: protocal::ID) {
-        self.uid = uid;
+        assert_eq!(0, self.read_buffer.len());
     }
 }
 
-struct Info {
-    mac_address: [u8; 6],
-}
-pub struct Packet {
-    event_hook: Arc<EventHook<MacAddress, RawPacket>>,
-    unused_receive: Mutex<HashVec<ReceivePacketType, host::Packet>>,
-    info: Info,
-    raw: RwLock<Option<RawPacket>>,
-}
-
-impl Packet {
-    async fn read_packet(&self) -> Result<RwLockReadGuard<Option<RawPacket>>, Error> {
-        let raw = self.raw.read().await;
-        match &*raw {
-            Some(_) => Ok(raw),
-            None => Err(Error::ClientOffline),
+impl<T> PacketIo<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    fn new(stream: T) -> Self
+    where
+        T: Clone,
+    {
+        Self {
+            conn: Connection::new(stream.clone(), stream),
+            read_buffer: Default::default(),
         }
     }
-    async fn write_packet(&self) -> Result<RwLockWriteGuard<Option<RawPacket>>, Error> {
-        let raw = self.raw.write().await;
-        match &*raw {
-            Some(_) => Ok(raw),
-            None => Err(Error::ClientOffline),
-        }
-    }
-    pub async fn get_handshake_uid(&self) -> Result<protocal::ID, Error> {
-        Ok(self.read_packet().await?.as_ref().unwrap().uid)
-    }
-    pub fn get_mac(&self) -> [u8; 6] {
-        self.info.mac_address
-    }
-    async fn send(&self, package: server::Packet) -> Result<(), Error> {
-        let mut packet = self.write_packet().await?;
-        let packet = packet.as_mut().unwrap();
-        packet.conn.send(package).await?;
+    async fn write(self_: &Mutex<Self>, package: ServerP) -> Result<(), Error> {
+        let conn = &mut self_.lock().await.conn;
+        conn.send(package).await?;
         Ok(())
     }
-    async fn read(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
-        let mut packet = self.write_packet().await?;
-        let packet = packet.as_mut().unwrap();
-
-        let mut unused = self.unused_receive.lock().await;
-        if let Some(packet) = unused.pop(&packet_type) {
-            return Ok(packet);
-        } else {
-            loop {
-                let package = packet
-                    .conn
-                    .read()
-                    .await
-                    .map_err(|_| Error::ClientDisconnect)?;
-                let receive_type = ReceivePacketType::from_packet(&package);
-
-                if receive_type == packet_type {
-                    return Ok(package);
-                } else {
-                    unused.push(receive_type, package);
+    async fn read(self_: &Mutex<Self>, ty: HostPTy) -> Result<HostP, Error> {
+        loop {
+            // check if there is already one reader
+            match self_.try_lock() {
+                Some(mut self_) => {
+                    // TODO: clear_posion if proto::transfer Error
+                    let res = self_.conn.read().await?;
+                    let res_ty = HostPTy::from_packet(&res);
+                    if res_ty == ty {
+                        return Ok(res);
+                    } else {
+                        self_.read_buffer.push(res_ty, res);
+                    }
+                }
+                None => {
+                    let mut self_ = self_.lock().await;
+                    if let Some(x) = self_.read_buffer.pop(&ty) {
+                        return Ok(x);
+                    }
                 }
             }
+            todo!()
         }
     }
-    async fn read_timeout(&self, packet_type: ReceivePacketType) -> Result<host::Packet, Error> {
-        timeout(
-            time::Duration::from_secs(TIMEOUTSHORT),
-            self.read(packet_type),
-        )
-        .await
-        .map_err(|_| {
-            log::error!("unexpected timeout");
-            Error::Timeout
-        })?
+    async fn read_arc(self_: Arc<Mutex<Self>>, ty: HostPTy) -> Result<HostP, Error> {
+        Self::read(&*self_, ty).await
     }
-    pub async fn issue_id(&self, id: protocal::ID) -> Result<(), Error> {
-        self.send(server::Packet::InitId(id)).await?;
-        self.read_timeout(ReceivePacketType::InitId).await?;
-        self.fake_uid(id).await?;
-        Ok(())
+    async fn read_timeout(
+        self_: Arc<Mutex<Self>>,
+        ty: HostPTy,
+        dur: Duration,
+    ) -> Result<HostP, Error> {
+        // expect reader to keep reading (consume that type of packet) if timeout
+        // task in background if timeout
+        background_timeout(Self::read_arc(self_.clone(), ty), dur).await?
+        // TODO: use io::timeout instead
     }
-    async fn fake_uid(&self, id: protocal::ID) -> Result<(), Error> {
-        let mut packet = self.write_packet().await?;
-        let packet = packet.as_mut().unwrap();
-        packet.uid = id;
+}
+
+async fn background_timeout<T>(
+    fut: impl Future<Output = T> + Send + 'static,
+    dur: Duration,
+) -> Result<T, Error>
+where
+    T: Send + 'static,
+{
+    let (s, r) = channel::bounded(1);
+    spawn(async move {
+        let res = fut.await;
+        s.send(res).await.ok();
+    });
+
+    Ok((timeout(dur, r.recv()).await)
+        .map_err(|_| Error::Timeout)?
+        .unwrap())
+}
+
+pub struct HandshakeInfo {
+    uid: ID,
+    mac_address: [u8; 6],
+}
+
+struct RawPacket<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    conn: Arc<Mutex<PacketIo<T>>>,
+    handshake: HandshakeInfo,
+}
+
+impl<T> RawPacket<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    async fn new(stream: T) -> Result<RawPacket<T>, Error>
+    where
+        T: Clone,
+    {
+        let conn = Arc::new(Mutex::new(PacketIo::new(stream)));
+
+        // read handshake
+        let handshake = UnwrapEnum!(
+            PacketIo::read(&conn, HostPTy::Handshake).await?,
+            HostP::Handshake
+        );
+        let handshake = HandshakeInfo {
+            uid: handshake.uid,
+            mac_address: handshake.mac_address,
+        };
+
+        // write handshake
+        let handshake_server = ServerP::Handshake(proto::prelude::server::Handshake {
+            ident: proto::prelude::PROTO_IDENT,
+            version: proto::prelude::APIVERSION,
+        });
+        
+        PacketIo::write(&conn, handshake_server).await?;
+        log::trace!("Handshake finished");
+
+        Ok(RawPacket { conn, handshake })
+    }
+}
+
+pub struct Packet<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    raw: RwLock<Option<RawPacket<T>>>,
+    event_hook: Arc<EventHook<[u8; 6], RawPacket<T>>>,
+    mac_address: [u8; 6],
+}
+
+macro_rules! impl_write_packet {
+    ($p:ident) => {
+        paste! {
+            pub async fn [<write_ $p:lower>](&self,package:proto::prelude::server::$p) -> Result<(), Error> {
+                log::trace!("sending {}",stringify!($p));
+                let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                PacketIo::write(&conn, ServerP::$p(package)).await?;
+                Ok(())
+            }
+        }
+    };
+}
+
+macro_rules! impl_write_packet_signal {
+    ($p:ident) => {
+        paste! {
+            pub async fn [<write_ $p:lower>](&self) -> Result<(), Error> {
+                log::trace!("sending {}",stringify!($p));
+                let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                PacketIo::write(&conn, ServerP::$p).await?;
+                Ok(())
+            }
+        }
+    };
+}
+
+macro_rules! impl_read_packet {
+    ($p:ident) => {
+        paste! {
+            pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
+                log::trace!("received {}",stringify!($p));
+                let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                let res = PacketIo::read(&conn, HostPTy::$p).await?;
+                Ok(UnwrapEnum!(res,HostP::$p))
+            }
+        }
+    };
+}
+
+macro_rules! impl_read_packet_signal {
+    ($p:ident) => {
+        paste! {
+            pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
+                log::trace!("received {}",stringify!($p));
+                let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                PacketIo::read(&conn, HostPTy::$p).await?;
+                Ok(())
+            }
+        }
+    };
+}
+
+impl<T> Packet<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    impl_write_packet! {Reboot}
+    impl_write_packet! {InitId}
+    impl_write_packet_signal! {ShutDown}
+    impl_write_packet_signal! {GrubQuery}
+    impl_write_packet_signal! {Ping}
+    impl_write_packet_signal! {OsQuery}
+
+    impl_read_packet! {GrubQuery}
+    impl_read_packet! {Ping}
+    impl_read_packet_signal! {Reboot}
+    impl_read_packet_signal! {InitId}
+    impl_read_packet_signal! {ShutDown}
+    impl_read_packet! {OsQuery}
+
+    pub async fn wait_reconnect(&self) -> Result<(), Error> {
+        match self.raw.write().await.take() {
+            Some(raw) => {
+                let new_raw = self.event_hook.wait(raw.handshake.mac_address).await;
+                *self.raw.write().await = Some(new_raw);
+                log::debug!("received distributed RawPacket");
+                Ok(())
+            }
+            None => Err(Error::ClientOffline),
+        }
+    }
+    pub fn get_mac_address(&self) -> &[u8; 6] {
+        &self.mac_address
+    }
+    pub async fn get_uid(&self) -> Result<ID, Error> {
+        let raw = self.raw.read().await;
+        let raw = raw.as_ref().ok_or(Error::ClientOffline)?;
+        Ok(raw.handshake.uid)
+    }
+    pub fn set_uid(&mut self, uid: ID) -> Result<(), Error> {
+        self.raw
+            .get_mut()
+            .as_mut()
+            .ok_or(Error::ClientOffline)?
+            .handshake
+            .uid = uid;
         Ok(())
     }
     pub async fn wol_reconnect(&self) -> Result<(), Error> {
-        race(
+        let magic_packet = MagicPacket::new(self.get_mac_address());
+        or(
             async {
                 loop {
-                    wol::MagicPacket::new(&self.info.mac_address).send().await;
-                    sleep(Duration::from_secs(1)).await;
+                    magic_packet.send().await;
+                    sleep(Duration::from_millis(500)).await;
                 }
             },
             self.wait_reconnect(),
         )
-        .await
-    }
-    pub async fn wait_reconnect(&self) -> Result<(), Error> {
-        let event_hook = &self.event_hook;
-
-        let new_packet = event_hook
-            .timeout(self.info.mac_address, time::Duration::from_secs(TIMEOUT))
-            .await
-            .map_err(|_| Error::Timeout)?;
-
-        let mut packet = self.write_packet().await?;
-        *packet = Some(new_packet);
-        // RawPacket drop here
-
+        .await?;
         Ok(())
     }
-    pub async fn shutdown(&self) -> Result<(), Error> {
-        self.send(server::Packet::ShutDown).await?;
-        self.read_timeout(ReceivePacketType::ShutDown).await?;
-        Ok(())
-    }
-    pub async fn grub_query(&self) -> Result<Vec<host::GrubInfo>, Error> {
-        // TODO: grub-probe is expect to keep running for longer time, add extra waiting time
-        self.send(server::Packet::GrubQuery).await?;
-        if let host::Packet::GrubQuery(query) =
-            self.read_timeout(ReceivePacketType::GrubQuery).await?
-        {
-            Ok(query)
-        } else {
-            Err(Error::UnknownProtocal)
-        }
-    }
-    pub async fn boot_into(&mut self, grub_sec: protocal::GrubId) -> Result<(), Error> {
-        self.send(server::Packet::Reboot(grub_sec)).await?;
-        self.read_timeout(ReceivePacketType::Reboot).await?;
-        self.wol_reconnect().await?;
-        Ok(())
-    }
-    pub async fn os_query(&self) -> Result<host::OsQuery, Error> {
-        self.send(server::Packet::OsQuery).await?;
-        log::debug!("after sending query");
-        if let host::Packet::OsQuery(query) = self.read_timeout(ReceivePacketType::OsQuery).await? {
-            log::debug!("after reading query");
-            Ok(query)
-        } else {
-            Err(Error::UnknownProtocal)
+}
+
+pub struct Packets<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    event_hook: Arc<EventHook<[u8; 6], RawPacket<T>>>,
+}
+
+impl<T> Default for Packets<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    fn default() -> Self {
+        Self {
+            event_hook: Default::default(),
         }
     }
 }
 
-#[derive(Default)]
-pub struct Packets {
-    event_hook: Arc<EventHook<MacAddress, RawPacket>>,
-}
-
-impl Packets {
-    pub async fn connect(&self, stream: net::TcpStream) -> Result<Option<Packet>, Error> {
-        let conn = Conn::from_tcp(stream);
-        let (mac_address, raw_packet) = RawPacket::from_conn_handshake(conn).await?;
-        log::trace!(
-            "Client with mac address {:x?} has finished hanshake",
-            &mac_address
-        );
-        match self.event_hook.signal(&mac_address, raw_packet) {
-            Some(raw_packet) => Ok(Some(Packet {
-                unused_receive: Mutex::new(HashVec::default()),
+impl<T> Packets<T>
+where
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
+{
+    pub async fn connect(&self, stream: T) -> Result<Option<Packet<T>>, Error>
+    where
+        T: Clone,
+    {
+        let raw = RawPacket::new(stream).await?;
+        let mac_address = raw.handshake.mac_address;
+        match self.event_hook.signal(&mac_address, raw) {
+            Some(raw) => Ok(Some(Packet {
+                raw: RwLock::new(Some(raw)),
                 event_hook: self.event_hook.clone(),
-                raw: RwLock::new(Some(raw_packet)),
-                info: Info { mac_address },
+                mac_address,
             })),
             None => Ok(None),
         }
     }
-    // pub fn unconnected(&self, mac_address: [u8; 6]) -> Result<Packet, Error> {
-    //     Ok(Packet {
-    //         unused_receive: Mutex::new(HashVec::default()),
-    //         event_hook: self.event_hook.clone(),
-    //         raw: RwLock::new(None),
-    //         info: Info { mac_address },
-    //     })
-    // }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Client may have never connected")]
+    #[error("client offline")]
     ClientOffline,
-    #[error("Client disconnected during operation")]
-    ClientDisconnect,
-    #[error("Unknown device hit the socket")]
-    UnknownProtocal,
-    #[error("client api version must match")]
-    IncompatibleVersion,
     #[error("timeout")]
     Timeout,
     #[error("conn error")]
-    Conn(#[from] protocal::Error),
+    Conn(#[from] proto::prelude::Error),
 }
+
+pub type TcpPacket = Packet<net::TcpStream>;
+pub type TcpPackets = Packets<net::TcpStream>;

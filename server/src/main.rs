@@ -23,7 +23,7 @@ async fn main() {
 
     let mut app = tide::new();
 
-    // app.with(tide::log::LogMiddleware::new());
+    app.with(tide::log::LogMiddleware::new());
 
     let cookie_secret: [u8; 32] = rand::thread_rng().gen();
     app.with(tide::sessions::SessionMiddleware::new(

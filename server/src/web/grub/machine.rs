@@ -1,4 +1,4 @@
-use super::packet::{self, Packet, Packets};
+use super::packet::{self, TcpPacket, TcpPackets};
 use super::{adaptor, api};
 use async_std::net;
 use async_std::sync::Mutex;
@@ -69,8 +69,8 @@ where
 
 pub struct Server {
     pub(super) machines: Mutex<IndexMap<MacAddress, Arc<Machine>>>,
-    pub(super) packets: Packets,
-    pub(super) unknown_packet: Mutex<RingBuffer<Packet, 4>>,
+    pub(super) packets: TcpPackets,
+    pub(super) unknown_packet: Mutex<RingBuffer<TcpPacket, 4>>,
     pub(super) socket: SocketAddr,
 }
 
@@ -117,8 +117,8 @@ impl Server {
         };
         self.connect_packet(packet).await
     }
-    async fn connect_packet(&self, packet: Packet) -> Result<(), Error> {
-        let mac_address = packet.get_mac();
+    async fn connect_packet(&self, packet: TcpPacket) -> Result<(), Error> {
+        let mac_address = packet.get_mac_address().clone();
         if let Some(machine) = self.machines.lock().await.get_mut(&mac_address) {
             machine.connect(packet).await;
         } else {
@@ -135,7 +135,7 @@ impl Server {
         log::debug!("initializing new machine of mac address({:x?})", &mac);
         let mut unknown_packet = self.unknown_packet.lock().await;
 
-        let packet = unknown_packet.pop(|item| item.get_mac() == mac);
+        let packet = unknown_packet.pop(|item| *item.get_mac_address() == mac);
 
         if let Some(packet) = packet {
             let (machine, packet) = Machine::new(packet, display_name).await?;
@@ -189,11 +189,11 @@ pub struct Machine {
     pub(super) display_name: Mutex<String>,
     pub(super) mac_address: MacAddress,
     pub(super) boot_graph: BootGraph,
-    pub(super) packet: Mutex<Option<Packet>>,
+    pub(super) packet: Mutex<Option<TcpPacket>>,
 }
 
 impl Machine {
-    pub(super) async fn connect(&self, packet: Packet) -> Option<Packet> {
+    pub(super) async fn connect(&self, packet: TcpPacket) -> Option<TcpPacket> {
         let mut current_packet = self.packet.lock().await;
         match &*current_packet {
             Some(_) => Some(packet),
@@ -204,10 +204,10 @@ impl Machine {
         }
     }
     pub(super) async fn new(
-        packet: Packet,
+        packet: TcpPacket,
         display_name: String,
-    ) -> Result<(Machine, Packet), Error> {
-        let mac_address = packet.get_mac();
+    ) -> Result<(Machine, TcpPacket), Error> {
+        let mac_address = packet.get_mac_address().clone();
         let id_counter = 1;
         let mut boot_graph = IntBootGraph::new(packet, id_counter).await?;
 

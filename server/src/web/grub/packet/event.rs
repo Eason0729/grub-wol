@@ -1,6 +1,7 @@
 // TODO: fix bug-> if event didn't yield(timeout), signals(on the Registry) would have possible memory leak
 
 use std::cell::Cell;
+use std::fmt::Debug;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::sync::Mutex;
@@ -16,7 +17,7 @@ use super::hashvec::*;
 
 struct Registry<S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     id_counter: usize,
     wakers: HashMap<usize, task::Waker>,
@@ -26,7 +27,7 @@ where
 
 impl<S, P> Default for Registry<S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     fn default() -> Self {
         Self {
@@ -40,14 +41,14 @@ where
 
 pub struct EventHook<S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     registry: Mutex<Registry<S, P>>,
 }
 
 impl<S, P> Default for EventHook<S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     fn default() -> Self {
         Self::new()
@@ -56,7 +57,7 @@ where
 
 impl<S, P> EventHook<S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     pub fn new() -> Self {
         Self {
@@ -154,6 +155,7 @@ where
     ///
     /// return None if the signal match a caller, Some(payload) otherwise
     pub fn signal(&self, s: &S, payload: P) -> Option<P> {
+        log::debug!("signal {:?} sent", s);
         let mut registry = self.registry.lock().unwrap();
 
         while registry.signals.contains_key(s) {
@@ -172,6 +174,7 @@ where
         let mut registry = self.registry.lock().unwrap();
         let id = registry.id_counter;
         registry.id_counter += 1;
+        log::trace!("hook registered with signal {:?}, id {}", signal, id);
 
         registry.signals.push(signal, id);
 
@@ -182,7 +185,7 @@ where
 // TODO: use PhontomData to prevent calling try_yield before calling try_wait
 struct Hook<'a, S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     ignitor: &'a EventHook<S, P>,
     id: usize,
@@ -190,7 +193,7 @@ where
 
 impl<'a, S, P> Hook<'a, S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     fn try_wait(&'a self) -> HookPoll<'a, S, P> {
         HookPoll {
@@ -212,7 +215,7 @@ where
 
 struct HookPoll<'a, S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     hook: &'a Hook<'a, S, P>,
     inited: Cell<bool>,
@@ -220,11 +223,12 @@ where
 
 impl<'a, S, P> Future for HookPoll<'a, S, P>
 where
-    S: Hash + Eq,
+    S: Hash + Eq + Debug,
 {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        log::trace!("HookPool of id {} waken", self.hook.id);
         if !self.inited.clone().take() {
             let mut registry = self.hook.ignitor.registry.lock().unwrap();
 
@@ -233,7 +237,12 @@ where
             self.inited.set(true);
             Poll::Pending
         } else {
-            Poll::Ready(())
+            let registry = self.hook.ignitor.registry.lock().unwrap();
+            if registry.payloads.contains_key(&self.hook.id) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
         }
     }
 }
@@ -256,6 +265,36 @@ mod test {
         let event_q1 = event_q.clone();
         spawn(async move {
             sleep(Duration::from_millis(20)).await;
+            for _ in 0..100 {
+                event_q1.signal(&1, 2);
+            }
+        });
+
+        for _ in 0..100 {
+            let event_q = event_q.clone();
+            let output = output.clone();
+            spawn(async move {
+                event_q.wait(1).await;
+                output.fetch_add(1, Ordering::Relaxed);
+            });
+        }
+
+        loop {
+            sleep(time::Duration::from_millis(50)).await;
+            if output.load(Ordering::Relaxed) == 100 {
+                break;
+            }
+        }
+    }
+
+    #[async_std::test]
+    async fn call_prevention() {
+        let event_q = Arc::new(EventHook::default());
+        let output = Arc::new(AtomicUsize::new(0));
+
+        let event_q1 = event_q.clone();
+        spawn(async move {
+            sleep(Duration::from_millis(3000)).await;
             for _ in 0..100 {
                 event_q1.signal(&1, 2);
             }

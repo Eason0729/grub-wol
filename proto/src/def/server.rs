@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::constant;
 
+pub type Reboot=constant::GrubId;
+pub type InitId=constant::ID;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Packet {
     Handshake(Handshake),

@@ -1,5 +1,5 @@
 // TODO: fix error handling
-use super::super::packet::{self, Packet};
+use super::super::packet::{self, TcpPacket};
 
 use super::graph::Graph;
 
@@ -80,15 +80,17 @@ pub enum BootMethod {
 }
 
 impl BootMethod {
-    pub async fn execute(&self, packet: &mut Packet) -> Result<(), packet::Error> {
+    pub async fn execute(&self, packet: &mut TcpPacket) -> Result<(), packet::Error> {
         match self {
-            BootMethod::WOL => packet.wol_reconnect().await?,
+            BootMethod::WOL => {
+                packet.wol_reconnect().await?;
+            }
             BootMethod::Grub(x) => {
-                packet.boot_into(*x).await?;
+                packet.write_reboot(*x).await?;
                 packet.wait_reconnect().await?;
             }
             BootMethod::Shutdown => {
-                packet.shutdown().await?;
+                packet.write_shutdown().await?;
             }
         };
         Ok(())
@@ -97,7 +99,7 @@ impl BootMethod {
 
 pub struct IntBootGraph {
     graph: Graph<OsStatus<LowOs>, BootMethod>,
-    packet: Packet,
+    packet: TcpPacket,
     unknown_os: Vec<HighOs>,
     ioss: Vec<HighOs>,
     id_counter: protocal::ID,
@@ -105,8 +107,8 @@ pub struct IntBootGraph {
 }
 
 impl IntBootGraph {
-    pub async fn new(packet: Packet, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
-        let mac_address = packet.get_mac();
+    pub async fn new(packet: TcpPacket, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
+        let mac_address = packet.get_mac_address().clone();
         let mut self_ = IntBootGraph {
             graph: Graph::new(),
             packet,
@@ -117,8 +119,9 @@ impl IntBootGraph {
         };
 
         // reboot to ensure correct first-boot os
-        self_.packet.shutdown().await?;
-        self_.packet.wait_reconnect().await?;
+        self_.packet.write_shutdown().await?;
+        self_.packet.read_shutdown().await?;
+        self_.packet.wol_reconnect().await?;
 
         // construct shutdown->first-boot-os on boot_graph
         let shutdown_node = self_.graph.add_node(OsStatus::Down);
@@ -143,26 +146,28 @@ impl IntBootGraph {
     ///
     /// If issue id successfully, query osinfo additionally(and return IntermediateOs)
     async fn issue_id(&mut self) -> Result<Option<HighOs>, Error> {
-        if self.packet.get_handshake_uid().await? == 0 {
+        if self.packet.get_uid().await? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
 
-            self.packet.issue_id(id).await?;
+            self.packet.write_initid(id).await?;
+            self.packet.set_uid(id)?;
 
             log::debug!("before os query");
-            let os_info = self.packet.os_query().await?;
+            self.packet.write_osquery().await?;
+            let os_info = self.packet.read_osquery().await?;
             log::debug!("after os query");
 
             let grub_info: Vec<GrubSec> = self
                 .packet
-                .grub_query()
+                .read_grubquery()
                 .await?
                 .into_iter()
                 .map(|info| info.grub_sec)
                 .collect();
 
             let os = HighOs {
-                id: self.packet.get_handshake_uid().await?,
+                id: self.packet.get_uid().await?,
                 display_name: os_info.display_name,
                 unknown_edge: grub_info,
             };
@@ -175,7 +180,7 @@ impl IntBootGraph {
     /// Returns the trace(a series of BootMethod) to closest os with unknown edge
     async fn get_closest_trace(&mut self) -> Result<(HighOs, Vec<BootMethod>), Error> {
         let current_os = LowOs {
-            id: self.packet.get_handshake_uid().await?,
+            id: self.packet.get_uid().await?,
         };
         let current_node = self
             .graph
@@ -216,7 +221,7 @@ impl IntBootGraph {
 
         Ok((os, trace))
     }
-    pub fn disassemble(self) -> (BootGraph, Packet, protocal::ID) {
+    pub fn disassemble(self) -> (BootGraph, TcpPacket, protocal::ID) {
         let mut map = IndexMap::new();
 
         for ios in self.ioss {
@@ -274,7 +279,7 @@ impl IntBootGraph {
                     dist_os
                 }
                 None => LowOs {
-                    id: self.packet.get_handshake_uid().await?,
+                    id: self.packet.get_uid().await?,
                 },
             };
 
@@ -301,8 +306,8 @@ pub struct BootGraph {
 pub type OsId = protocal::ID;
 
 impl BootGraph {
-    pub async fn current_os(&self, packet: &Packet) -> Result<OsStatus<&Os>, Error> {
-        match packet.get_handshake_uid().await {
+    pub async fn current_os(&self, packet: &TcpPacket) -> Result<OsStatus<&Os>, Error> {
+        match packet.get_uid().await {
             Ok(x) => {
                 let os = self.os.get(&LowOs { id: x });
                 match os {
@@ -328,7 +333,7 @@ impl BootGraph {
     pub async fn boot_into(
         &self,
         os: OsStatus<protocal::ID>,
-        packet: &mut Packet,
+        packet: &mut TcpPacket,
     ) -> Result<(), Error> {
         let from = self.current_os(packet).await?.map(|x| LowOs { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;

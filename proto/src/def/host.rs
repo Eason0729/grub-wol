@@ -1,18 +1,22 @@
 use crate::constant;
 use serde::{Deserialize, Serialize};
 
+pub type GrubQuery=Vec<GrubInfo>;
+pub type Ping=constant::ID;
+pub type Reboot=();
+pub type InitId=();
+pub type ShutDown=();
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Packet {
     Handshake(Handshake),
     Reboot,
     InitId,
     ShutDown,
-    GrubQuery(Vec<GrubInfo>),
-    Ping(constant::ID),
-    OSQuery(OSQuery),
+    GrubQuery(GrubQuery),
+    Ping(Ping),
+    OsQuery(OsQuery),
 }
 
-pub type GrubQuery=Vec<GrubInfo>;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Handshake {
@@ -28,6 +32,6 @@ pub struct GrubInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct OSQuery {
+pub struct OsQuery {
     pub display_name: String,
 }

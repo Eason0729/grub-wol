@@ -10,7 +10,7 @@ pub enum Packet {
     ShutDown,  // rpc: execute grub reboot
     GrubQuery, // query: query available grub path
     Ping,
-    OSQuery, // query: query current os info
+    OsQuery, // query: query current os info
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

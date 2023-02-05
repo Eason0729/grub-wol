@@ -109,7 +109,7 @@ impl<'a> Convert<api::MachineList<'a>> for MachineListAdaptor<'a> {
 }
 
 pub struct BootAdaptor {
-    pub(super) os: api::OSStatus,
+    pub(super) os: api::OsStatus,
     pub(super) machine: Option<Arc<Machine>>,
 }
 
@@ -117,8 +117,8 @@ pub struct BootAdaptor {
 impl Convert<api::BootRes> for BootAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let os = match self.os {
-            api::OSStatus::Down { kind: _ } => bootgraph::OSStatus::Down,
-            api::OSStatus::Up { id } => bootgraph::OSStatus::Up(id),
+            api::OsStatus::Down { kind: _ } => bootgraph::OsStatus::Down,
+            api::OsStatus::Up { id } => bootgraph::OsStatus::Up(id),
         };
 
         if self.machine.is_none() {

@@ -29,7 +29,7 @@ async fn test_main() {
                 continue;
             }
             server::Packet::GrubQuery => state.os().respond_query(),
-            server::Packet::OSQuery => state.os().respond_query(),
+            server::Packet::OsQuery => state.os().respond_query(),
             server::Packet::Ping => todo!(),
         };
         state.conn().send(res).await.unwrap();

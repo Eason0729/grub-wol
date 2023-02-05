@@ -2,7 +2,7 @@ use async_std::net;
 use proto::prelude::{host, server, GrubId, TcpConn, APIVERSION, ID, PROTO_IDENT, SERVER_PORT};
 use rand::Rng;
 
-const OS_VARIETY: usize = 3;
+const Os_VARIETY: usize = 3;
 
 type Conn = TcpConn<host::Packet, server::Packet>;
 
@@ -19,7 +19,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Ubuntu".to_owned(),
-            grub_path: (0..OS_VARIETY)
+            grub_path: (0..Os_VARIETY)
                 .map(|_| Some(rand::thread_rng().gen()))
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -28,7 +28,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Debian".to_owned(),
-            grub_path: (0..OS_VARIETY)
+            grub_path: (0..Os_VARIETY)
                 .map(|_| Some(rand::thread_rng().gen()))
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -37,7 +37,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Windows".to_owned(),
-            grub_path: (0..OS_VARIETY)
+            grub_path: (0..Os_VARIETY)
                 .map(|_| None)
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -110,7 +110,7 @@ impl MachineInfo {
 pub struct OsInfo {
     uid: ID,
     display_name: String,
-    grub_path: [Option<GrubId>; OS_VARIETY],
+    grub_path: [Option<GrubId>; Os_VARIETY],
 }
 
 impl OsInfo {
@@ -128,7 +128,7 @@ impl OsInfo {
         host::Packet::InitId
     }
     pub fn name(&self) -> host::Packet {
-        host::Packet::OSQuery(host::OSQuery {
+        host::Packet::OsQuery(host::OsQuery {
             display_name: self.display_name.clone(),
         })
     }

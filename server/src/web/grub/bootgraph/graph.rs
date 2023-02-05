@@ -106,13 +106,13 @@ where
         while !queue.is_empty() {
             let from_l = queue.pop_front().unwrap();
             let from_d = distance[from_l].unwrap();
-            const COST: usize = 1;
+            const COsT: usize = 1;
 
             self.edges[from_l].iter().for_each(|edge| {
                 let edge_dist = edge.to;
                 let dist_d = distance[edge_dist].unwrap_or(usize::MAX);
                 if from_d < dist_d {
-                    distance[edge_dist] = Some(from_d + COST);
+                    distance[edge_dist] = Some(from_d + COsT);
                     last_node[edge_dist] = from_l;
                     last_edge[edge_dist] = Some(&edge.value);
                     queue.push_back(edge_dist);

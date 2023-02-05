@@ -15,59 +15,59 @@ trait IntoLow {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-pub struct OS {
+pub struct Os {
     pub id: protocal::ID,
     pub display_name: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
-struct LowOS {
+struct LowOs {
     id: protocal::ID,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone)]
-struct HighOS {
+struct HighOs {
     id: protocal::ID,
     display_name: String,
     unknown_edge: Vec<GrubSec>,
 }
 
-impl IntoLow for HighOS {
-    type Low = LowOS;
+impl IntoLow for HighOs {
+    type Low = LowOs;
 
     fn into_low(&self) -> Self::Low {
-        LowOS { id: self.id }
+        LowOs { id: self.id }
     }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
-pub enum OSStatus<T> {
+pub enum OsStatus<T> {
     Down,
     Up(T),
 }
 
-impl<T> OSStatus<T> {
-    fn map<F, O>(self, f: F) -> OSStatus<O>
+impl<T> OsStatus<T> {
+    fn map<F, O>(self, f: F) -> OsStatus<O>
     where
         F: Fn(T) -> O,
     {
         match self {
-            OSStatus::Down => OSStatus::Down,
-            OSStatus::Up(x) => OSStatus::Up(f(x)),
+            OsStatus::Down => OsStatus::Down,
+            OsStatus::Up(x) => OsStatus::Up(f(x)),
         }
     }
 }
 
-impl<T> IntoLow for OSStatus<T>
+impl<T> IntoLow for OsStatus<T>
 where
     T: IntoLow,
 {
-    type Low = OSStatus<T::Low>;
+    type Low = OsStatus<T::Low>;
 
     fn into_low(&self) -> Self::Low {
         match self {
-            OSStatus::Down => OSStatus::Down,
-            OSStatus::Up(x) => OSStatus::Up(x.into_low()),
+            OsStatus::Down => OsStatus::Down,
+            OsStatus::Up(x) => OsStatus::Up(x.into_low()),
         }
     }
 }
@@ -96,10 +96,10 @@ impl BootMethod {
 }
 
 pub struct IntBootGraph {
-    graph: Graph<OSStatus<LowOS>, BootMethod>,
+    graph: Graph<OsStatus<LowOs>, BootMethod>,
     packet: Packet,
-    unknown_os: Vec<HighOS>,
-    ioss: Vec<HighOS>,
+    unknown_os: Vec<HighOs>,
+    ioss: Vec<HighOs>,
     id_counter: protocal::ID,
     mac_address: [u8; 6],
 }
@@ -121,14 +121,14 @@ impl IntBootGraph {
         self_.packet.wait_reconnect().await?;
 
         // construct shutdown->first-boot-os on boot_graph
-        let shutdown_node = self_.graph.add_node(OSStatus::Down);
+        let shutdown_node = self_.graph.add_node(OsStatus::Down);
         let fboot_os = self_
             .issue_id()
             .await?
             .ok_or(Error::UndefinedClientBehavior)?;
         let fboot_node = self_
             .graph
-            .add_node(OSStatus::Up(fboot_os.clone()).into_low());
+            .add_node(OsStatus::Up(fboot_os.clone()).into_low());
 
         self_
             .graph
@@ -141,8 +141,8 @@ impl IntBootGraph {
     }
     /// try to issue id
     ///
-    /// If issue id successfully, query osinfo additionally(and return IntermediateOS)
-    async fn issue_id(&mut self) -> Result<Option<HighOS>, Error> {
+    /// If issue id successfully, query osinfo additionally(and return IntermediateOs)
+    async fn issue_id(&mut self) -> Result<Option<HighOs>, Error> {
         if self.packet.get_handshake_uid().await? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
@@ -161,7 +161,7 @@ impl IntBootGraph {
                 .map(|info| info.grub_sec)
                 .collect();
 
-            let os = HighOS {
+            let os = HighOs {
                 id: self.packet.get_handshake_uid().await?,
                 display_name: os_info.display_name,
                 unknown_edge: grub_info,
@@ -173,19 +173,19 @@ impl IntBootGraph {
         }
     }
     /// Returns the trace(a series of BootMethod) to closest os with unknown edge
-    async fn get_closest_trace(&mut self) -> Result<(HighOS, Vec<BootMethod>), Error> {
-        let current_os = LowOS {
+    async fn get_closest_trace(&mut self) -> Result<(HighOs, Vec<BootMethod>), Error> {
+        let current_os = LowOs {
             id: self.packet.get_handshake_uid().await?,
         };
         let current_node = self
             .graph
-            .find_node(&OSStatus::Up(current_os))
+            .find_node(&OsStatus::Up(current_os))
             .ok_or(Error::BadGraph)?;
 
         let dijkstra = self.graph.dijkstra(&current_node);
 
         // get the index of closest os
-        let unknown_os: Vec<LowOS> = self
+        let unknown_os: Vec<LowOs> = self
             .unknown_os
             .iter()
             .map(|ios| ios.clone().into_low())
@@ -194,7 +194,7 @@ impl IntBootGraph {
             .into_iter()
             .map(|os| {
                 // TODO: here should return Err(Error:BadGraph)
-                let node = self.graph.find_node(&OSStatus::Up(os)).unwrap();
+                let node = self.graph.find_node(&OsStatus::Up(os)).unwrap();
                 dijkstra.to(&node).unwrap()
             })
             .collect();
@@ -207,7 +207,7 @@ impl IntBootGraph {
 
         let closest_node = self
             .graph
-            .find_node(&OSStatus::Up(self.unknown_os[min_index].into_low()))
+            .find_node(&OsStatus::Up(self.unknown_os[min_index].into_low()))
             .unwrap();
         let trace = dijkstra.trace(&closest_node).unwrap();
         let trace = trace.iter().map(|x| (*x).clone()).collect();
@@ -222,7 +222,7 @@ impl IntBootGraph {
         for ios in self.ioss {
             map.insert(
                 ios.into_low(),
-                OS {
+                Os {
                     id: ios.id,
                     display_name: ios.display_name,
                 },
@@ -244,7 +244,7 @@ impl IntBootGraph {
     pub async fn try_yield(&mut self) -> Result<(), Error> {
         let shutdown_node = self
             .graph
-            .find_node(&OSStatus::Down)
+            .find_node(&OsStatus::Down)
             .ok_or(Error::BadGraph)?;
         while !self.is_finish() {
             let (mut ios, trace) = self.get_closest_trace().await?;
@@ -256,7 +256,7 @@ impl IntBootGraph {
             let from = ios.into_low();
             let from = self
                 .graph
-                .find_node(&OSStatus::Up(from))
+                .find_node(&OsStatus::Up(from))
                 .ok_or(Error::BadGraph)?;
             let grub_sec = ios.unknown_edge.pop().ok_or(Error::BadGraph)?;
             let method = BootMethod::Grub(grub_sec);
@@ -268,17 +268,17 @@ impl IntBootGraph {
                     let dist_os = ios.into_low();
                     let dist = self
                         .graph
-                        .find_node(&OSStatus::Up(dist_os.clone()))
+                        .find_node(&OsStatus::Up(dist_os.clone()))
                         .unwrap();
                     self.graph.connect(shutdown_node, dist, BootMethod::WOL);
                     dist_os
                 }
-                None => LowOS {
+                None => LowOs {
                     id: self.packet.get_handshake_uid().await?,
                 },
             };
 
-            let dist = self.graph.find_node(&OSStatus::Up(dist)).unwrap();
+            let dist = self.graph.find_node(&OsStatus::Up(dist)).unwrap();
 
             self.graph.connect(from, dist, method);
 
@@ -294,48 +294,48 @@ impl IntBootGraph {
 // TODO: use Mutex in BootGraph to change display_name on fly
 #[derive(Clone, Deserialize, Serialize, Default)]
 pub struct BootGraph {
-    graph: Graph<OSStatus<LowOS>, BootMethod>,
-    os: IndexMap<LowOS, OS>,
+    graph: Graph<OsStatus<LowOs>, BootMethod>,
+    os: IndexMap<LowOs, Os>,
 }
 
-pub type OSId = protocal::ID;
+pub type OsId = protocal::ID;
 
 impl BootGraph {
-    pub async fn current_os(&self, packet: &Packet) -> Result<OSStatus<&OS>, Error> {
+    pub async fn current_os(&self, packet: &Packet) -> Result<OsStatus<&Os>, Error> {
         match packet.get_handshake_uid().await {
             Ok(x) => {
-                let os = self.os.get(&LowOS { id: x });
+                let os = self.os.get(&LowOs { id: x });
                 match os {
-                    Some(x) => Ok(OSStatus::Up(x)),
+                    Some(x) => Ok(OsStatus::Up(x)),
                     None => Err(Error::UndefinedClientBehavior),
                 }
             }
             Err(e) => {
                 if let packet::Error::ClientOffline = e {
-                    Ok(OSStatus::Down)
+                    Ok(OsStatus::Down)
                 } else {
                     Err(e.into())
                 }
             }
         }
     }
-    pub fn list_os(&self) -> impl Iterator<Item = &OS> {
+    pub fn list_os(&self) -> impl Iterator<Item = &Os> {
         self.os.iter().map(|(_, v)| v)
     }
-    pub fn find_os(&self, os: OSId) -> Option<&OS> {
-        self.os.get(&LowOS { id: os })
+    pub fn find_os(&self, os: OsId) -> Option<&Os> {
+        self.os.get(&LowOs { id: os })
     }
     pub async fn boot_into(
         &self,
-        os: OSStatus<protocal::ID>,
+        os: OsStatus<protocal::ID>,
         packet: &mut Packet,
     ) -> Result<(), Error> {
-        let from = self.current_os(packet).await?.map(|x| LowOS { id: x.id });
+        let from = self.current_os(packet).await?.map(|x| LowOs { id: x.id });
         let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
         let to = match os {
-            OSStatus::Down => OSStatus::Down,
-            OSStatus::Up(id) => OSStatus::Up(LowOS { id: id }),
+            OsStatus::Down => OsStatus::Down,
+            OsStatus::Up(id) => OsStatus::Up(LowOs { id: id }),
         };
         let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
@@ -351,10 +351,10 @@ impl BootGraph {
         Ok(())
     }
     // pub async fn off(&self, packet: &mut Packet<'_>, mac_address: [u8; 6]) -> Result<(), Error> {
-    //     let from = self.current_os(packet)?.map(|x| LowOS { id: x.id });
+    //     let from = self.current_os(packet)?.map(|x| LowOs { id: x.id });
     //     let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
 
-    //     let to = OSStatus::Down;
+    //     let to = OsStatus::Down;
     //     let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
 
     //     for method in self

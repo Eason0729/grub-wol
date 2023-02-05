@@ -30,7 +30,7 @@ pub enum ReceivePacketType {
     Reboot,
     InitId,
     ShutDown,
-    OSQuery,
+    OsQuery,
 }
 
 impl ReceivePacketType {
@@ -42,7 +42,7 @@ impl ReceivePacketType {
             host::Packet::Reboot => ReceivePacketType::Reboot,
             host::Packet::InitId => ReceivePacketType::InitId,
             host::Packet::ShutDown => ReceivePacketType::ShutDown,
-            host::Packet::OSQuery(_) => ReceivePacketType::OSQuery,
+            host::Packet::OsQuery(_) => ReceivePacketType::OsQuery,
         }
     }
 }
@@ -230,10 +230,10 @@ impl Packet {
         self.wol_reconnect().await?;
         Ok(())
     }
-    pub async fn os_query(&self) -> Result<host::OSQuery, Error> {
-        self.send(server::Packet::OSQuery).await?;
+    pub async fn os_query(&self) -> Result<host::OsQuery, Error> {
+        self.send(server::Packet::OsQuery).await?;
         log::debug!("after sending query");
-        if let host::Packet::OSQuery(query) = self.read_timeout(ReceivePacketType::OSQuery).await? {
+        if let host::Packet::OsQuery(query) = self.read_timeout(ReceivePacketType::OsQuery).await? {
             log::debug!("after reading query");
             Ok(query)
         } else {
@@ -265,14 +265,14 @@ impl Packets {
             None => Ok(None),
         }
     }
-    pub fn unconnected(&self, mac_address: [u8; 6]) -> Result<Packet, Error> {
-        Ok(Packet {
-            unused_receive: Mutex::new(HashVec::default()),
-            event_hook: self.event_hook.clone(),
-            raw: RwLock::new(None),
-            info: Info { mac_address },
-        })
-    }
+    // pub fn unconnected(&self, mac_address: [u8; 6]) -> Result<Packet, Error> {
+    //     Ok(Packet {
+    //         unused_receive: Mutex::new(HashVec::default()),
+    //         event_hook: self.event_hook.clone(),
+    //         raw: RwLock::new(None),
+    //         info: Info { mac_address },
+    //     })
+    // }
 }
 
 #[derive(thiserror::Error, Debug)]

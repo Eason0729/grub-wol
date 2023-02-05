@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 
 // boot into a os (request)
-// POST /api/op/boot
+// POsT /api/op/boot
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct BootReq<'a> {
     pub mac_address: Cow<'a, [u8; 6]>,
-    pub os: OSStatus,
+    pub os: OsStatus,
 }
 // stc
 #[derive(Deserialize, Serialize)]
@@ -22,7 +22,7 @@ pub enum BootRes {
 }
 
 // get a list of machine
-// POST /api/get/machines
+// POsT /api/get/machines
 // cts: no payload
 // stc
 #[derive(Deserialize, Serialize)]
@@ -31,7 +31,7 @@ pub struct MachineList<'a> {
 }
 
 // get detailed info of a machine
-// POST /api/get/machine
+// POsT /api/get/machine
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct MachineInfoReq<'a> {
@@ -42,7 +42,7 @@ pub struct MachineInfoReq<'a> {
 pub type MachineInfo<'a> = Option<MachineInfoInner<'a>>;
 
 // get a list of os
-// POST /api/get/oss
+// POsT /api/get/oss
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct OsListReq<'a> {
@@ -55,7 +55,7 @@ pub struct OsList<'a> {
 }
 
 // // get detailed info of an os
-// // POST /api/get/os
+// // POsT /api/get/os
 // // cts
 // #[derive(Deserialize, Serialize)]
 // pub struct OsInfoReq{
@@ -66,7 +66,7 @@ pub struct OsList<'a> {
 // pub type OsInfo<'a>=Option<OsInfoInner<'a>>;
 
 // init new machine
-// POST /api/op/new
+// POsT /api/op/new
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct NewMachineReq<'a> {
@@ -83,7 +83,7 @@ pub enum NewMachineRes {
 }
 
 // login
-// POST /login
+// POsT /login
 // cts
 #[derive(Deserialize, Serialize)]
 pub struct LoginReq<'a> {
@@ -114,7 +114,7 @@ pub enum MachineState {
 
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
-pub enum OSStatus {
+pub enum OsStatus {
     Down { kind: MustBe!("Down") },
     Up { id: ID },
 }

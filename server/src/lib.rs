@@ -3,5 +3,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub mod web;
-pub use crate::web::grub::api;
+pub (crate)mod web;
+pub (crate)mod grub;
+pub use crate::grub::api;

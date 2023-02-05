@@ -2,7 +2,7 @@ use std::{env, path::Path, sync::Arc};
 
 use async_std::task::spawn;
 
-use super::grub::{machine, prelude as grub};
+use crate::grub::{machine, prelude as grub};
 
 lazy_static! {
     static ref SAVE_PATH: &'static Path = Path::new("./");

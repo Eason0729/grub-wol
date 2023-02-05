@@ -6,6 +6,7 @@ extern crate lazy_static;
 #[cfg(test)]
 mod test;
 pub mod web;
+pub mod grub;
 use rand::Rng;
 use web::prelude::*;
 

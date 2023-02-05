@@ -12,8 +12,11 @@ async fn test_main() {
     let mut state = state::MachineInfo::new();
     state.connect().await;
     loop {
-        let res = match state.conn().read().await.unwrap() {
+        let req=state.conn().read().await.unwrap();
+        log::debug!("recieived {:?}",req);
+        let res = match req {
             server::Packet::Handshake(_) => {
+                log::trace!("recieived callback Handshake");
                 continue;
             }
             server::Packet::Reboot(x) => state.boot_by(x),

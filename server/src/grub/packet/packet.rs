@@ -53,20 +53,23 @@ impl HostPTy {
 
 struct PacketIo<T>
 where
-    T: io::WriteExt + Unpin + io::ReadExt,
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
 {
-    conn: Connection<ServerP, HostP, T, T>,
+    conn: Option<Connection<ServerP, HostP, T, T>>,
     read_buffer: HashVec<HostPTy, HostP>,
 }
 
 impl<T> Drop for PacketIo<T>
 where
-    T: io::WriteExt + Unpin + io::ReadExt,
+    T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
 {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         assert_eq!(0, self.read_buffer.len());
-        self.conn.flush();
+        let conn = self.conn.take();
+        spawn(async move {
+            conn.unwrap().flush().await.ok();
+        });
     }
 }
 
@@ -79,13 +82,13 @@ where
         T: Clone,
     {
         Self {
-            conn: Connection::new(stream.clone(), stream),
+            conn: Some(Connection::new(stream.clone(), stream)),
             read_buffer: Default::default(),
         }
     }
     async fn write(self_: &Mutex<Self>, package: ServerP) -> Result<(), Error> {
         let conn = &mut self_.lock().await.conn;
-        conn.send(package).await?;
+        conn.as_mut().unwrap().send(package).await?;
         Ok(())
     }
     async fn read(self_: &Mutex<Self>, ty: HostPTy) -> Result<HostP, Error> {
@@ -94,7 +97,7 @@ where
             match self_.try_lock() {
                 Some(mut self_) => {
                     // TODO: clear_posion if proto::transfer Error
-                    let res = self_.conn.read().await?;
+                    let res = self_.conn.as_mut().unwrap().read().await?;
                     let res_ty = HostPTy::from_packet(&res);
                     if res_ty == ty {
                         return Ok(res);
@@ -183,7 +186,7 @@ where
             ident: proto::prelude::PROTO_IDENT,
             version: proto::prelude::APIVERSION,
         });
-        
+
         PacketIo::write(&conn, handshake_server).await?;
         log::trace!("Handshake finished");
 

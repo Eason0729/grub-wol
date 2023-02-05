@@ -12,8 +12,8 @@ async fn test_main() {
     let mut state = state::MachineInfo::new();
     state.connect().await;
     loop {
-        let req=state.conn().read().await.unwrap();
-        log::debug!("recieived {:?}",req);
+        let req = state.conn().read().await.unwrap();
+        log::debug!("recieived {:?}", req);
         let res = match req {
             server::Packet::Handshake(_) => {
                 log::trace!("recieived callback Handshake");

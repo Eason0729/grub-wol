@@ -59,13 +59,14 @@ where
     read_buffer: HashVec<HostPTy, HostP>,
 }
 
-#[cfg(debug_assertions)]
 impl<T> Drop for PacketIo<T>
 where
     T: io::WriteExt + Unpin + io::ReadExt,
 {
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
         assert_eq!(0, self.read_buffer.len());
+        self.conn.flush();
     }
 }
 

@@ -80,6 +80,13 @@ where
         let packet: DP = bincode::deserialize(&packet_buffer)?;
         Ok(packet)
     }
+    pub async fn flush(&mut self)-> Result<(), Error>{
+        self.upstream.flush().await?;
+        Ok(())
+    }
+    pub fn clone_inner(&self)->U where U:Clone{
+        self.upstream.clone()
+    }
     pub fn shutdown(self) {
         drop(self.upstream);
         drop(self.downstream);

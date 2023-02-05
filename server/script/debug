@@ -1,2 +1,2 @@
 #!/bin/bash
-RUST_LOG=trace cargo run | grep -P "server::web::grub" > logs.txt
+cargo run | grep -P "server::" > logs.txt

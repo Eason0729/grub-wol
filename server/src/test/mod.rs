@@ -26,6 +26,7 @@ async fn test_main() {
             }
             server::Packet::ShutDown => {
                 state.conn().send(host::Packet::ShutDown).await.unwrap();
+                state.conn().flush().await.unwrap();
                 state.close();
                 sleep(Duration::from_secs(3)).await;
                 state.connect().await;

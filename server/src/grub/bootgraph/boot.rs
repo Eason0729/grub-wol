@@ -83,13 +83,16 @@ impl BootMethod {
     pub async fn execute(&self, packet: &mut TcpPacket) -> Result<(), packet::Error> {
         match self {
             BootMethod::WOL => {
+                log::trace!("waiting host {:?} to boot",packet.get_mac_address());
                 packet.wol_reconnect().await?;
             }
             BootMethod::Grub(x) => {
+                log::trace!("executing host {:?} to chain load other os",packet.get_mac_address());
                 packet.write_reboot(*x).await?;
                 packet.wait_reconnect().await?;
             }
             BootMethod::Shutdown => {
+                log::trace!("shuting down host {:?}",packet.get_mac_address());
                 packet.write_shutdown().await?;
             }
         };
@@ -118,10 +121,12 @@ impl IntBootGraph {
             mac_address,
         };
 
+        log::debug!("initing first-boot os");
         // reboot to ensure correct first-boot os
         self_.packet.write_shutdown().await?;
         self_.packet.read_shutdown().await?;
         self_.packet.wol_reconnect().await?;
+        log::trace!("boot to first-boot os");
 
         // construct shutdown->first-boot-os on boot_graph
         let shutdown_node = self_.graph.add_node(OsStatus::Down);
@@ -149,14 +154,15 @@ impl IntBootGraph {
         if self.packet.get_uid().await? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
+            log::debug!("initing new os with id {}",id);
 
             self.packet.write_initid(id).await?;
             self.packet.set_uid(id)?;
+            log::trace!("set id {}",id);
 
-            log::debug!("before os query");
             self.packet.write_osquery().await?;
             let os_info = self.packet.read_osquery().await?;
-            log::debug!("after os query");
+            log::trace!("get os_info of {:?}",os_info);
 
             let grub_info: Vec<GrubSec> = self
                 .packet
@@ -165,6 +171,7 @@ impl IntBootGraph {
                 .into_iter()
                 .map(|info| info.grub_sec)
                 .collect();
+            log::trace!("get grub_info of {:?}",grub_info);
 
             let os = HighOs {
                 id: self.packet.get_uid().await?,
@@ -292,6 +299,7 @@ impl IntBootGraph {
                 self.unknown_os.push(ios);
             }
         }
+        log::debug!("finish boot graph");
         Ok(())
     }
 }

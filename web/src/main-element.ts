@@ -8,19 +8,27 @@ import axios from "axios";
 export class MainElement extends LitElement {
   @property()
   login = (async function () {
-    while (true) {
-      let res = await axios.post("/api/get/machines", {
-        withCredentials: true
-      });
-      if (300 > res.status && res.status >= 200) {
-        break;
-      } else {
+    let is_auth=false
+    while(!is_auth) {
+      try{
+        is_auth=true
+        await axios.post("/api/get/machines", {
+          withCredentials: true
+        });
+      }catch(err){
+        is_auth=false;
+      }
+      if (!is_auth){
         let password = prompt("Enter password to login:");
         await axios.post("/login", { password }, { withCredentials: true });
       }
     }
     // control panel goes here
-    return html``;
+    return html`
+    <link rel="stylesheet" href="/src/bulma.css">
+    <div class="container is-max-desktop">
+      <ctrl-panel></ctrl-panel>
+    </div>`;
   })();
   render() {
     return html`${until(this.login, html`<span>Loading...</span>`)}`;

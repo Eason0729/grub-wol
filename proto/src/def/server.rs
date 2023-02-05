@@ -4,7 +4,7 @@ use crate::constant;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Packet {
-    HandShake(HandShake),
+    Handshake(Handshake),
     Reboot(constant::GrubId), // rpc: execute grub reboot
     InitId(constant::ID),
     ShutDown,  // rpc: execute grub reboot
@@ -14,7 +14,7 @@ pub enum Packet {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct HandShake {
+pub struct Handshake {
     pub ident: constant::ProtoIdentType,
     pub version: constant::APIVersionType,
 }

@@ -1,8 +1,8 @@
-use std::borrow::Cow;
 use monostate::MustBe;
 /// file for api response
 use proto::prelude::ID;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 
 // boot into a os (request)
 // POST /api/op/boot
@@ -107,26 +107,16 @@ pub struct MachineInfoInner<'a> {
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum MachineState {
-    Down{
-        kind:MustBe!("Down"),
-    },
-    Uninited{
-        kind:MustBe!("Uninited"),
-    },
-    Up{
-        id:ID
-    },
+    Down { kind: MustBe!("Down") },
+    Uninited { kind: MustBe!("Uninited") },
+    Up { id: ID },
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum OSStatus {
-    Down{
-        kind:MustBe!("Down"),
-    },
-    Up{
-        id:ID
-    },
+    Down { kind: MustBe!("Down") },
+    Up { id: ID },
 }
 
 #[derive(Deserialize, Serialize)]

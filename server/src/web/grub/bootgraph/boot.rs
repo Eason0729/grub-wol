@@ -146,9 +146,12 @@ impl IntBootGraph {
         if self.packet.get_handshake_uid().await? == 0 {
             let id = self.id_counter.clone();
             self.id_counter += 1;
+
             self.packet.issue_id(id).await?;
 
+            log::debug!("before os query");
             let os_info = self.packet.os_query().await?;
+            log::debug!("after os query");
 
             let grub_info: Vec<GrubSec> = self
                 .packet
@@ -263,7 +266,10 @@ impl IntBootGraph {
             let dist = match self.issue_id().await? {
                 Some(ios) => {
                     let dist_os = ios.into_low();
-                    let dist = self.graph.find_node(&OSStatus::Up(dist_os.clone())).unwrap();
+                    let dist = self
+                        .graph
+                        .find_node(&OSStatus::Up(dist_os.clone()))
+                        .unwrap();
                     self.graph.connect(shutdown_node, dist, BootMethod::WOL);
                     dist_os
                 }

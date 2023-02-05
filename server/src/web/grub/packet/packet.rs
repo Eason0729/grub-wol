@@ -20,7 +20,7 @@ type Conn = protocal::TcpConn<PacketType::server::Packet, PacketType::host::Pack
 
 const TIMEOUTLONG: u64 = 3600;
 const TIMEOUT: u64 = 180;
-const TIMEOUTSHORT: u64 = 5;
+const TIMEOUTSHORT: u64 = 50;
 
 #[derive(Hash, Eq, PartialEq, Clone)]
 pub enum ReceivePacketType {
@@ -36,7 +36,7 @@ pub enum ReceivePacketType {
 impl ReceivePacketType {
     fn from_packet(packet: &host::Packet) -> Self {
         match packet {
-            host::Packet::HandShake(_) => ReceivePacketType::Invaild,
+            host::Packet::Handshake(_) => ReceivePacketType::Invaild,
             host::Packet::GrubQuery(_) => ReceivePacketType::GrubQuery,
             host::Packet::Ping(_) => ReceivePacketType::Ping,
             host::Packet::Reboot => ReceivePacketType::Reboot,
@@ -51,9 +51,16 @@ struct RawPacket {
     conn: Conn,
     uid: protocal::ID,
 }
+
+#[cfg(debug_assertions)]
+impl Drop for RawPacket {
+    fn drop(&mut self) {
+        log::info!("RawPacket drop here");
+    }
+}
 impl RawPacket {
     async fn from_conn_handshake(mut conn: Conn) -> Result<([u8; 6], Self), Error> {
-        if let host::Packet::HandShake(handshake) =
+        if let host::Packet::Handshake(handshake) =
             conn.read().await.map_err(|_| Error::UnknownProtocal)?
         {
             Self::from_handshake(conn, handshake).await
@@ -64,7 +71,7 @@ impl RawPacket {
 
     async fn from_handshake(
         mut conn: Conn,
-        handshake: host::HandShake,
+        handshake: host::Handshake,
     ) -> Result<([u8; 6], Self), Error> {
         if handshake.ident != protocal::PROTO_IDENT {
             return Err(Error::UnknownProtocal);
@@ -75,12 +82,12 @@ impl RawPacket {
         let mac_address = handshake.mac_address;
         let uid = handshake.uid;
 
-        let server_handshake = server::HandShake {
+        let server_handshake = server::Handshake {
             ident: protocal::PROTO_IDENT,
             version: protocal::APIVERSION,
         };
 
-        conn.send(server::Packet::HandShake(server_handshake))
+        conn.send(server::Packet::Handshake(server_handshake))
             .await
             .map_err(|_| Error::UnknownProtocal)?;
 
@@ -158,7 +165,10 @@ impl Packet {
             self.read(packet_type),
         )
         .await
-        .map_err(|_| Error::Timeout)?
+        .map_err(|_| {
+            log::error!("unexpected timeout");
+            Error::Timeout
+        })?
     }
     pub async fn issue_id(&self, id: protocal::ID) -> Result<(), Error> {
         self.send(server::Packet::InitId(id)).await?;
@@ -194,6 +204,7 @@ impl Packet {
 
         let mut packet = self.write_packet().await?;
         *packet = Some(new_packet);
+        // RawPacket drop here
 
         Ok(())
     }
@@ -219,9 +230,11 @@ impl Packet {
         self.wol_reconnect().await?;
         Ok(())
     }
-    pub async fn os_query(&self) -> Result<host::OSInfo, Error> {
+    pub async fn os_query(&self) -> Result<host::OSQuery, Error> {
         self.send(server::Packet::OSQuery).await?;
+        log::debug!("after sending query");
         if let host::Packet::OSQuery(query) = self.read_timeout(ReceivePacketType::OSQuery).await? {
+            log::debug!("after reading query");
             Ok(query)
         } else {
             Err(Error::UnknownProtocal)

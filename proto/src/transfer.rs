@@ -45,6 +45,14 @@ where
     U: WriteExt + Unpin,
     D: ReadExt + Unpin,
 {
+    pub fn new(upstream: U, downstream: D) -> Self {
+        Self {
+            upstream,
+            downstream,
+            upstream_packet: PhantomData,
+            downstream_packet: PhantomData,
+        }
+    }
     pub async fn send(&mut self, packet: UP) -> Result<(), Error> {
         let binary = bincode::serialize(&packet)?;
         let size = binary.len() as PrefixType;

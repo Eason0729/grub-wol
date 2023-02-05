@@ -54,13 +54,13 @@ impl<'a> Convert<api::MachineInfo<'a>> for MachineInfoAdaptor {
                     Some(os) => Some(os),
                     None => None,
                 };
-                let display_name=&*machine.display_name.lock().await.to_owned();
+                let display_name = &*machine.display_name.lock().await.to_owned();
                 Ok(serde_json::to_vec(&Some(api::MachineInfoInner {
-                    display_name:Some(Cow::Borrowed(&display_name)),
+                    display_name: Some(Cow::Borrowed(&display_name)),
                     mac_address: Cow::Borrowed(&machine.mac_address),
                     state: match current_os {
-                        Some(os) => api::MachineState::Up{id:os},
-                        None => api::MachineState::Down{kind:MustBeStr},
+                        Some(os) => api::MachineState::Up { id: os },
+                        None => api::MachineState::Down { kind: MustBeStr },
                     },
                 }))
                 .unwrap())
@@ -83,13 +83,12 @@ impl<'a> Convert<api::MachineList<'a>> for MachineListAdaptor<'a> {
         let machines_src = server.machines.lock().await;
         for (mac_address, machine) in machines_src.iter() {
             let current_os = machine.current_os().await?.map(|os| os);
-            let display_name=machine.display_name.lock().await.to_owned();
+            let display_name = machine.display_name.lock().await.to_owned();
             machines.push(api::MachineInfoInner {
-                display_name:Some(Cow::Owned(display_name)),
+                display_name: Some(Cow::Owned(display_name)),
                 state: match current_os {
-                    Some(os) => {
-                        api::MachineState::Up{id:os}},
-                    None => api::MachineState::Down{kind:MustBeStr},
+                    Some(os) => api::MachineState::Up { id: os },
+                    None => api::MachineState::Down { kind: MustBeStr },
                 },
                 mac_address: Cow::Borrowed(mac_address),
             });
@@ -99,9 +98,9 @@ impl<'a> Convert<api::MachineList<'a>> for MachineListAdaptor<'a> {
         let unknown_mac: Vec<[u8; 6]> = unknown_src.iter().map(|p| p.get_mac()).collect();
         unknown_mac.iter().for_each(|mac_address| {
             machines.push(api::MachineInfoInner {
-                display_name:None,
+                display_name: None,
                 mac_address: Cow::Borrowed(mac_address),
-                state: api::MachineState::Uninited{kind:MustBeStr},
+                state: api::MachineState::Uninited { kind: MustBeStr },
             });
         });
 
@@ -118,8 +117,8 @@ pub struct BootAdaptor {
 impl Convert<api::BootRes> for BootAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let os = match self.os {
-            api::OSStatus::Down{kind: _} => bootgraph::OSStatus::Down,
-            api::OSStatus::Up{id} => bootgraph::OSStatus::Up(id),
+            api::OSStatus::Down { kind: _ } => bootgraph::OSStatus::Down,
+            api::OSStatus::Up { id } => bootgraph::OSStatus::Up(id),
         };
 
         if self.machine.is_none() {
@@ -156,6 +155,7 @@ pub struct NewMachineAdaptor<'a> {
 #[async_trait]
 impl<'a> Convert<api::NewMachineRes> for NewMachineAdaptor<'a> {
     async fn convert(self) -> Result<Vec<u8>, Error> {
+        // TODO: notice the client after instead of creating a long running http request
         Ok(serde_json::to_vec(&match self
             .server
             .new_machine(self.mac_address, self.display_name)

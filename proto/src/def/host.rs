@@ -3,17 +3,19 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Packet {
-    HandShake(HandShake),
+    Handshake(Handshake),
     Reboot,
     InitId,
     ShutDown,
     GrubQuery(Vec<GrubInfo>),
     Ping(constant::ID),
-    OSQuery(OSInfo),
+    OSQuery(OSQuery),
 }
 
+pub type GrubQuery=Vec<GrubInfo>;
+
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct HandShake {
+pub struct Handshake {
     pub ident: constant::ProtoIdentType,
     pub mac_address: [u8; 6],
     pub uid: constant::ID,
@@ -26,6 +28,6 @@ pub struct GrubInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct OSInfo {
+pub struct OSQuery {
     pub display_name: String,
 }

@@ -168,6 +168,7 @@ impl IntBootGraph {
             let os_info = self.packet.read_osquery().await?;
             log::trace!("get os_info of {:?}", os_info);
 
+            self.packet.write_grubquery().await?;
             let grub_info: Vec<GrubSec> = self
                 .packet
                 .read_grubquery()

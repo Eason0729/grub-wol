@@ -1,6 +1,8 @@
 use async_std::net;
-use proto::prelude::{host, server, GrubId, TcpConn, APIVERSION, ID, PROTO_IDENT, SERVER_PORT};
+use proto::prelude::{host, server, GrubId, APIVERSION, ID, PROTO_IDENT, SERVER_PORT};
 use rand::Rng;
+
+use super::transfer::TcpConn;
 
 const Os_VARIETY: usize = 3;
 
@@ -115,7 +117,7 @@ pub struct OsInfo {
 }
 
 impl OsInfo {
-    pub fn respond_query(&self) -> host::Packet {
+    pub fn respond_grub(&self) -> host::Packet {
         host::Packet::GrubQuery(
             self.grub_path
                 .iter()
@@ -123,6 +125,11 @@ impl OsInfo {
                 .map(|&grub_sec| host::GrubInfo { grub_sec })
                 .collect(),
         )
+    }
+    pub fn respond_os(&self) -> host::Packet {
+        host::Packet::OsQuery(host::OsQuery {
+            display_name: self.display_name.clone(),
+        })
     }
     pub fn change_uid(&mut self, uid: ID) -> host::Packet {
         self.uid = uid;

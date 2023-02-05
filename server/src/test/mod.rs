@@ -33,8 +33,8 @@ async fn test_main() {
                 state.connect().await;
                 continue;
             }
-            server::Packet::GrubQuery => state.os().respond_query(),
-            server::Packet::OsQuery => state.os().respond_query(),
+            server::Packet::GrubQuery => state.os().respond_grub(),
+            server::Packet::OsQuery => state.os().respond_os(),
             server::Packet::Ping => todo!(),
         };
         state.conn().send(res).await.unwrap();

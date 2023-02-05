@@ -9,7 +9,6 @@ mod transfer;
 pub mod prelude {
     pub use super::constant::*;
     pub use super::def::*;
-    pub use super::transfer::Connection;
     pub use super::transfer::Error;
-    pub use super::transfer::TcpConn;
+    pub use super::transfer::*;
 }

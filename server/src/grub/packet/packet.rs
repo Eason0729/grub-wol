@@ -5,13 +5,10 @@ use async_std::{
     sync::{Mutex, RwLock},
     task::{sleep, spawn},
 };
-use futures_lite::{
-    future::{or, race},
-    Future,
-};
+use futures_lite::Future;
 use paste::paste;
 use proto::prelude::{
-    packets::host::Packet as HostP, packets::server::Packet as ServerP, Connection, ID,
+    packets::host::Packet as HostP, packets::server::Packet as ServerP, ReadConn, WriteConn, ID,
 };
 use std::{pin::Pin, sync::Arc, time::Duration};
 
@@ -59,7 +56,8 @@ struct PacketIo<T>
 where
     T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
 {
-    conn: Mutex<Option<Connection<ServerP, HostP, T, T>>>,
+    reader: Mutex<ReadConn<T, HostP>>,
+    writer: Mutex<Option<WriteConn<T, ServerP>>>,
     read_buffer: Mutex<HashVec<HostPTy, HostP>>,
 }
 
@@ -69,10 +67,19 @@ where
 {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
-        if self.read_buffer.get_mut().len() != 0 {
-            log::warn!("there are unused packets before PacketIo drop");
+        {
+            let read_buffer = self.read_buffer.get_mut();
+            if read_buffer.len() != 0 {
+                log::warn!(
+                    "there are unused packets before PacketIo drop, buffer contain {:?}",
+                    read_buffer
+                        .iter()
+                        .map(|(ty, value)| ty)
+                        .collect::<Vec<&HostPTy>>()
+                );
+            }
         }
-        let conn = self.conn.get_mut().take();
+        let conn = self.writer.get_mut().take();
         spawn(async move {
             conn.unwrap().flush().await.ok();
         });
@@ -88,13 +95,21 @@ where
         T: Clone,
     {
         Self {
-            conn: Mutex::new(Some(Connection::new(stream.clone(), stream))),
             read_buffer: Default::default(),
+            reader: Mutex::new(ReadConn {
+                data_type: std::marker::PhantomData,
+                stream: stream.clone(),
+            }),
+            writer: Mutex::new(Some(WriteConn {
+                data_type: std::marker::PhantomData,
+                stream,
+            })),
         }
     }
     async fn write(&self, package: ServerP) -> Result<(), Error> {
-        let mut conn = self.conn.lock().await;
-        conn.as_mut().unwrap().send(package).await?;
+        let mut conn = self.writer.lock().await;
+        let conn = conn.as_mut().unwrap();
+        conn.write(package).await?;
         Ok(())
     }
     async fn write_arc(self_: Arc<Self>, package: ServerP) -> Result<(), Error> {
@@ -102,32 +117,27 @@ where
     }
     async fn read(&self, ty: HostPTy) -> Result<HostP, Error> {
         loop {
-            let mut read_buffer = self.read_buffer.lock().await;
-            if let Some(x) = read_buffer.pop(&ty) {
-                return Ok(x);
+            match self.reader.try_lock() {
+                Some(mut reader) => {
+                    let res = reader.read().await?;
+                    let res_ty = HostPTy::from_packet(&res);
+                    let mut read_buffer = self.read_buffer.lock().await;
+                    read_buffer.push(res_ty, res);
+                }
+                None => {}
             }
-
-            let mut conn = self.conn.lock().await;
-
-            let res = conn.as_mut().unwrap().read().await?;
-            let res_ty = HostPTy::from_packet(&res);
-            log::trace!("packet type: {:?}", res_ty);
-            if res_ty == ty {
+            self.reader.lock().await;
+            let mut read_buffer = self.read_buffer.lock().await;
+            if let Some(res) = read_buffer.pop(&ty) {
                 return Ok(res);
-            } else {
-                log::trace!("packet ended up in buffer");
-                let mut read_buffer = self.read_buffer.lock().await;
-                read_buffer.push(res_ty, res);
             }
         }
     }
-    async fn read_arc(self_: Arc<Self>, ty: HostPTy) -> Result<HostP, Error> {
-        Self::read(&*self_, ty).await
-    }
     async fn read_timeout(self_: Arc<Self>, ty: HostPTy, dur: Duration) -> Result<HostP, Error> {
         // expect reader to keep reading (consume that type of packet) if timeout
-        // task in background if timeout
-        background_timeout(Self::read_arc(self_.clone(), ty), dur).await?
+        timeout(dur, self_.read(ty))
+            .await
+            .map_err(|_| Error::Timeout)?
         // TODO: use io::timeout instead
     }
 }
@@ -175,10 +185,7 @@ where
         let conn = Arc::new(PacketIo::new(stream));
 
         // read handshake
-        let handshake = UnwrapEnum!(
-            PacketIo::read_arc(conn.clone(), HostPTy::Handshake).await?,
-            HostP::Handshake
-        );
+        let handshake = UnwrapEnum!(conn.read(HostPTy::Handshake).await?, HostP::Handshake);
         let handshake = HandshakeInfo {
             uid: handshake.uid,
             mac_address: handshake.mac_address,
@@ -210,9 +217,10 @@ macro_rules! impl_write_packet {
     ($p:ident) => {
         paste! {
             pub async fn [<write_ $p:lower>](&self,package:proto::prelude::server::$p) -> Result<(), Error> {
-                log::trace!("sending {}",stringify!($p));
+                log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p(package)).await?;
+                log::trace!("sent packet {}",stringify!($p));
                 Ok(())
             }
         }
@@ -223,9 +231,10 @@ macro_rules! impl_write_packet_signal {
     ($p:ident) => {
         paste! {
             pub async fn [<write_ $p:lower>](&self) -> Result<(), Error> {
-                log::trace!("sending {}",stringify!($p));
+                log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p).await?;
+                log::trace!("sent packet {}",stringify!($p));
                 Ok(())
             }
         }
@@ -236,11 +245,10 @@ macro_rules! impl_read_packet {
     ($p:ident) => {
         paste! {
             pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("received {} of 1",stringify!($p));
+                log::trace!("reading packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
-                log::trace!("received {} of 2",stringify!($p));
                 let res = PacketIo::read(&conn, HostPTy::$p).await?;
-                log::trace!("received {} of 3",stringify!($p));
+                log::trace!("received packet {}",stringify!($p));
                 Ok(UnwrapEnum!(res,HostP::$p))
             }
         }
@@ -253,9 +261,8 @@ macro_rules! impl_read_packet_signal {
             pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
                 log::trace!("received {} of 1",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
-                log::trace!("received {} of 2",stringify!($p));
                 PacketIo::read(&conn, HostPTy::$p).await?;
-                log::trace!("received {} of 3",stringify!($p));
+                log::trace!("received packet {}",stringify!($p));
                 Ok(())
             }
         }

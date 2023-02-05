@@ -67,6 +67,11 @@ where
             true
         }
     }
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.map
+            .iter()
+            .flat_map(|(k, v)| v.iter().map(move |e| (k, e)))
+    }
     pub fn len(&self) -> usize {
         self.map.len()
     }

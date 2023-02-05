@@ -1,5 +1,6 @@
 // dummy client
 pub mod state;
+pub mod transfer;
 
 use async_std::task::sleep;
 use proto::prelude::*;
@@ -27,7 +28,7 @@ async fn test_main() {
             server::Packet::ShutDown => {
                 state.conn().send(host::Packet::ShutDown).await.unwrap();
                 state.conn().flush().await.unwrap();
-                state.close();
+                state.close().await;
                 sleep(Duration::from_secs(3)).await;
                 state.connect().await;
                 continue;

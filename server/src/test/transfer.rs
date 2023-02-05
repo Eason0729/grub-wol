@@ -7,7 +7,7 @@ use thiserror;
 
 // use crate::mock::MockTcpStream;
 
-type PrefixType = crate::constant::PacketPrefix;
+type PrefixType = proto::constant::PacketPrefix;
 // TODO: use bincode option to limit max bytes
 const MAXSIZE: PrefixType = 1048576;
 
@@ -84,6 +84,9 @@ where
         self.upstream.flush().await?;
         Ok(())
     }
+    pub fn clone_inner(&self)->U where U:Clone{
+        self.upstream.clone()
+    }
     pub fn shutdown(self) {
         drop(self.upstream);
         drop(self.downstream);
@@ -119,54 +122,3 @@ where
 pub type TcpConn<U, D> = Connection<U, D, net::TcpStream, net::TcpStream>;
 // #[cfg(test)]
 // pub type TcpConn<U, D> = Connection<U, D, MockTcpStream, MockTcpStream>;
-
-pub struct ReadConn<S,Ty> where S:ReadExt,Ty: for<'a> Deserialize<'a>{
-    data_type:PhantomData<Ty>,
-    pub stream:S
-}
-
-impl<S, Ty> ReadConn<S, Ty>
-where S:ReadExt+Unpin,Ty: for<'a> Deserialize<'a>
-{
-    pub async fn read(&mut self) -> Result<Ty, Error> {
-        let mut prefix_buffer = vec![0_u8; *PREFIX_SIZE];
-        self.stream.read_exact(&mut prefix_buffer).await?;
-
-        let size: PrefixType = bincode::deserialize(&prefix_buffer)?;
-
-        if size > MAXSIZE {
-            return Err(Error::TooLargeEntity);
-        }
-
-        let mut packet_buffer = vec![0_u8; size as usize];
-
-        self.stream.read_exact(&mut packet_buffer).await?;
-
-        let packet: Ty = bincode::deserialize(&packet_buffer)?;
-        Ok(packet)
-    }
-}
-
-pub struct WriteConn<S,Ty> where S:WriteExt+Unpin,Ty:Serialize{
-    data_type:PhantomData<Ty>,
-    stream:S
-}
-
-impl<S, Ty> WriteConn<S, Ty>
-where S:WriteExt+Unpin,Ty:Serialize
-{
-    pub async fn flush(&mut self)-> Result<(), Error>{
-        self.stream.flush().await?;
-        Ok(())
-    }
-    pub async fn write(&mut self, packet: Ty) -> Result<(), Error> {
-        let binary = bincode::serialize(&packet)?;
-        let size = binary.len() as PrefixType;
-        let mut size = bincode::serialize(&size)?;
-
-        size.extend_from_slice(binary.as_slice());
-        self.stream.write_all(&size).await?;
-
-        Ok(())
-    }
-}

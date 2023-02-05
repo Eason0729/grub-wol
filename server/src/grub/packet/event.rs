@@ -10,7 +10,7 @@ use std::time;
 use std::{collections::*, future::Future};
 
 use async_std::future::timeout;
-use async_std::task::sleep;
+use async_std::task::{sleep, spawn};
 use futures_lite::future::race;
 
 use super::hashvec::*;
@@ -75,19 +75,18 @@ where
     /// wait for the signal while keep invoking the function
     pub async fn poll_until<F>(&self, signal: S, f: F, interval: time::Duration) -> P
     where
-        F: Fn(),
+        F: Fn() + Send + 'static,
     {
         let hook = self.register(signal);
-        race(
-            async {
-                loop {
-                    f();
-                    sleep(interval).await;
-                }
-            },
-            hook.try_wait(),
-        )
-        .await;
+        let poll_handle = spawn(async move {
+            loop {
+                f();
+                sleep(interval).await;
+            }
+        });
+
+        hook.try_wait().await;
+        poll_handle.cancel().await;
 
         hook.try_yield().unwrap()
     }
@@ -127,24 +126,20 @@ where
         timeout_: time::Duration,
     ) -> Result<P, ()>
     where
-        F: Fn(),
+        F: Fn() + Send + 'static,
     {
         let hook = self.register(signal);
 
-        timeout(
-            timeout_,
-            race(
-                async {
-                    loop {
-                        f();
-                        sleep(interval).await;
-                    }
-                },
-                hook.try_wait(),
-            ),
-        )
-        .await
-        .ok();
+        let poll_handle = spawn(async move {
+            loop {
+                f();
+                sleep(interval).await;
+            }
+        });
+
+        timeout(timeout_, hook.try_wait()).await.ok();
+
+        poll_handle.cancel().await;
 
         match hook.try_yield() {
             Some(x) => Ok(x),
@@ -155,7 +150,7 @@ where
     ///
     /// return None if the signal match a caller, Some(payload) otherwise
     pub fn signal(&self, s: &S, payload: P) -> Option<P> {
-        log::debug!("signal {:?} sent", s);
+        log::trace!("signal {:?} sent", s);
         let mut registry = self.registry.lock().unwrap();
 
         while registry.signals.contains_key(s) {

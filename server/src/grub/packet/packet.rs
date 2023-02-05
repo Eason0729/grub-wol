@@ -5,7 +5,10 @@ use async_std::{
     sync::{Mutex, RwLock},
     task::{sleep, spawn},
 };
-use futures_lite::{future::or, Future};
+use futures_lite::{
+    future::{or, race},
+    Future,
+};
 use paste::paste;
 use proto::prelude::{
     packets::host::Packet as HostP, packets::server::Packet as ServerP, Connection, ID,
@@ -26,7 +29,7 @@ macro_rules! UnwrapEnum {
     };
 }
 
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 pub enum HostPTy {
     GrubQuery,
     Ping,
@@ -51,12 +54,13 @@ impl HostPTy {
     }
 }
 
+// TODO: refactor packetIO to support multiple IO
 struct PacketIo<T>
 where
     T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
 {
-    conn: Option<Connection<ServerP, HostP, T, T>>,
-    read_buffer: HashVec<HostPTy, HostP>,
+    conn: Mutex<Option<Connection<ServerP, HostP, T, T>>>,
+    read_buffer: Mutex<HashVec<HostPTy, HostP>>,
 }
 
 impl<T> Drop for PacketIo<T>
@@ -65,8 +69,10 @@ where
 {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
-        assert_eq!(0, self.read_buffer.len());
-        let conn = self.conn.take();
+        if self.read_buffer.get_mut().len() != 0 {
+            log::warn!("there are unused packets before PacketIo drop");
+        }
+        let conn = self.conn.get_mut().take();
         spawn(async move {
             conn.unwrap().flush().await.ok();
         });
@@ -82,47 +88,43 @@ where
         T: Clone,
     {
         Self {
-            conn: Some(Connection::new(stream.clone(), stream)),
+            conn: Mutex::new(Some(Connection::new(stream.clone(), stream))),
             read_buffer: Default::default(),
         }
     }
-    async fn write(self_: &Mutex<Self>, package: ServerP) -> Result<(), Error> {
-        let conn = &mut self_.lock().await.conn;
+    async fn write(&self, package: ServerP) -> Result<(), Error> {
+        let mut conn = self.conn.lock().await;
         conn.as_mut().unwrap().send(package).await?;
         Ok(())
     }
-    async fn read(self_: &Mutex<Self>, ty: HostPTy) -> Result<HostP, Error> {
+    async fn write_arc(self_: Arc<Self>, package: ServerP) -> Result<(), Error> {
+        Self::write(&*self_, package).await
+    }
+    async fn read(&self, ty: HostPTy) -> Result<HostP, Error> {
         loop {
-            // check if there is already one reader
-            match self_.try_lock() {
-                Some(mut self_) => {
-                    // TODO: clear_posion if proto::transfer Error
-                    let res = self_.conn.as_mut().unwrap().read().await?;
-                    let res_ty = HostPTy::from_packet(&res);
-                    if res_ty == ty {
-                        return Ok(res);
-                    } else {
-                        self_.read_buffer.push(res_ty, res);
-                    }
-                }
-                None => {
-                    let mut self_ = self_.lock().await;
-                    if let Some(x) = self_.read_buffer.pop(&ty) {
-                        return Ok(x);
-                    }
-                }
+            let mut read_buffer = self.read_buffer.lock().await;
+            if let Some(x) = read_buffer.pop(&ty) {
+                return Ok(x);
             }
-            todo!()
+
+            let mut conn = self.conn.lock().await;
+
+            let res = conn.as_mut().unwrap().read().await?;
+            let res_ty = HostPTy::from_packet(&res);
+            log::trace!("packet type: {:?}", res_ty);
+            if res_ty == ty {
+                return Ok(res);
+            } else {
+                log::trace!("packet ended up in buffer");
+                let mut read_buffer = self.read_buffer.lock().await;
+                read_buffer.push(res_ty, res);
+            }
         }
     }
-    async fn read_arc(self_: Arc<Mutex<Self>>, ty: HostPTy) -> Result<HostP, Error> {
+    async fn read_arc(self_: Arc<Self>, ty: HostPTy) -> Result<HostP, Error> {
         Self::read(&*self_, ty).await
     }
-    async fn read_timeout(
-        self_: Arc<Mutex<Self>>,
-        ty: HostPTy,
-        dur: Duration,
-    ) -> Result<HostP, Error> {
+    async fn read_timeout(self_: Arc<Self>, ty: HostPTy, dur: Duration) -> Result<HostP, Error> {
         // expect reader to keep reading (consume that type of packet) if timeout
         // task in background if timeout
         background_timeout(Self::read_arc(self_.clone(), ty), dur).await?
@@ -130,6 +132,7 @@ where
     }
 }
 
+/// wait for timeout in background to ensure the task finish even if timeout
 async fn background_timeout<T>(
     fut: impl Future<Output = T> + Send + 'static,
     dur: Duration,
@@ -157,7 +160,7 @@ struct RawPacket<T>
 where
     T: io::WriteExt + Unpin + io::ReadExt + Send + 'static,
 {
-    conn: Arc<Mutex<PacketIo<T>>>,
+    conn: Arc<PacketIo<T>>,
     handshake: HandshakeInfo,
 }
 
@@ -169,11 +172,11 @@ where
     where
         T: Clone,
     {
-        let conn = Arc::new(Mutex::new(PacketIo::new(stream)));
+        let conn = Arc::new(PacketIo::new(stream));
 
         // read handshake
         let handshake = UnwrapEnum!(
-            PacketIo::read(&conn, HostPTy::Handshake).await?,
+            PacketIo::read_arc(conn.clone(), HostPTy::Handshake).await?,
             HostP::Handshake
         );
         let handshake = HandshakeInfo {
@@ -187,7 +190,7 @@ where
             version: proto::prelude::APIVERSION,
         });
 
-        PacketIo::write(&conn, handshake_server).await?;
+        PacketIo::write_arc(conn.clone(), handshake_server).await?;
         log::trace!("Handshake finished");
 
         Ok(RawPacket { conn, handshake })
@@ -233,9 +236,11 @@ macro_rules! impl_read_packet {
     ($p:ident) => {
         paste! {
             pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("received {}",stringify!($p));
+                log::trace!("received {} of 1",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                log::trace!("received {} of 2",stringify!($p));
                 let res = PacketIo::read(&conn, HostPTy::$p).await?;
+                log::trace!("received {} of 3",stringify!($p));
                 Ok(UnwrapEnum!(res,HostP::$p))
             }
         }
@@ -246,9 +251,11 @@ macro_rules! impl_read_packet_signal {
     ($p:ident) => {
         paste! {
             pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("received {}",stringify!($p));
+                log::trace!("received {} of 1",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
+                log::trace!("received {} of 2",stringify!($p));
                 PacketIo::read(&conn, HostPTy::$p).await?;
+                log::trace!("received {} of 3",stringify!($p));
                 Ok(())
             }
         }
@@ -274,15 +281,11 @@ where
     impl_read_packet! {OsQuery}
 
     pub async fn wait_reconnect(&self) -> Result<(), Error> {
-        match self.raw.write().await.take() {
-            Some(raw) => {
-                let new_raw = self.event_hook.wait(raw.handshake.mac_address).await;
-                *self.raw.write().await = Some(new_raw);
-                log::debug!("received distributed RawPacket");
-                Ok(())
-            }
-            None => Err(Error::ClientOffline),
-        }
+        let raw = self.raw.write().await.take().ok_or(Error::ClientOffline)?;
+        let new_raw = self.event_hook.wait(raw.handshake.mac_address).await;
+        *self.raw.write().await = Some(new_raw);
+        log::trace!("received distributed RawPacket");
+        Ok(())
     }
     pub fn get_mac_address(&self) -> &[u8; 6] {
         &self.mac_address
@@ -303,16 +306,14 @@ where
     }
     pub async fn wol_reconnect(&self) -> Result<(), Error> {
         let magic_packet = MagicPacket::new(self.get_mac_address());
-        or(
-            async {
-                loop {
-                    magic_packet.send().await;
-                    sleep(Duration::from_millis(500)).await;
-                }
-            },
-            self.wait_reconnect(),
-        )
-        .await?;
+        let wol_handle = spawn(async move {
+            loop {
+                magic_packet.send().await;
+                sleep(Duration::from_secs(1)).await;
+            }
+        });
+        self.wait_reconnect().await?;
+        wol_handle.cancel().await;
         Ok(())
     }
 }

@@ -71,11 +71,12 @@ impl MachineInfo {
         }
         host::Packet::Reboot
     }
-    pub fn close(&mut self) {
+    pub async fn close(&mut self) {
         if self.packet.is_none() {
             log::error!("Packet already closed");
         }
-        self.packet = None;
+        let mut packet = self.packet.take().unwrap();
+        packet.flush().await.ok();
     }
     pub async fn connect(&mut self) {
         if self.packet.is_some() {

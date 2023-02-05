@@ -130,7 +130,6 @@ impl IntBootGraph {
         self_.packet.read_shutdown().await?;
         log::trace!("signal down");
         self_.packet.wol_reconnect().await?;
-        log::debug!("boot to first-boot os");
 
         // construct shutdown->first-boot-os on boot_graph
         let shutdown_node = self_.graph.add_node(OsStatus::Down);
@@ -161,6 +160,7 @@ impl IntBootGraph {
             log::debug!("initing new os with id {}", id);
 
             self.packet.write_initid(id).await?;
+            self.packet.read_initid().await?;
             self.packet.set_uid(id)?;
             log::trace!("set id {}", id);
 

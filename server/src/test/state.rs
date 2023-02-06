@@ -9,7 +9,7 @@ const Os_VARIETY: usize = 3;
 type Conn = TcpConn<host::Packet, server::Packet>;
 
 pub struct MachineInfo {
-    current_os: usize,
+    pub current_os: usize,
     pub packet: Option<Conn>,
     mac_address: [u8; 6],
     oss: Vec<OsInfo>,

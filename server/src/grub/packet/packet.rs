@@ -218,7 +218,6 @@ macro_rules! impl_write_packet {
     ($p:ident) => {
         paste! {
             pub async fn [<write_ $p:snake>](&self,package:proto::prelude::server::$p) -> Result<(), Error> {
-                log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p(package)).await?;
                 log::trace!("sent packet {}",stringify!($p));
@@ -232,7 +231,6 @@ macro_rules! impl_write_packet_signal {
     ($p:ident) => {
         paste! {
             pub async fn [<write_ $p:snake>](&self) -> Result<(), Error> {
-                log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p).await?;
                 log::trace!("sent packet {}",stringify!($p));
@@ -246,7 +244,6 @@ macro_rules! impl_read_packet {
     ($p:ident) => {
         paste! {
             pub async fn [<read_ $p:snake>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("reading packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 let res = PacketIo::read(&conn, HostPTy::$p).await?;
                 log::trace!("received packet {}",stringify!($p));
@@ -260,7 +257,6 @@ macro_rules! impl_read_packet_signal {
     ($p:ident) => {
         paste! {
             pub async fn [<read_ $p:snake>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("reading packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::read(&conn, HostPTy::$p).await?;
                 log::trace!("received packet {}",stringify!($p));

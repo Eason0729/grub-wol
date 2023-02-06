@@ -37,6 +37,7 @@ async fn test_main() {
                 state.conn().send(host::Packet::Shutdown).await.unwrap();
                 state.conn().flush().await.unwrap();
                 state.close().await;
+                state.current_os=1;
                 sleep(Duration::from_secs(1)).await;
                 state.connect().await;
                 continue;

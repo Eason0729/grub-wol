@@ -1,81 +1,18 @@
-// TODO: fix error handling
-use super::super::packet::{self, TcpPacket};
+use std::collections::HashMap;
 
-use super::graph::Graph;
-
+use async_std::os;
 use indexmap::IndexMap;
-use proto::prelude as protocal;
+use proto::prelude::{GrubId, ID};
 use serde::{Deserialize, Serialize};
 
-pub type GrubSec = protocal::GrubId;
+use crate::grub::packet::{self, TcpPacket};
 
-trait IntoLow {
-    type Low;
-    fn into_low(&self) -> Self::Low;
-}
+use super::graph::{Graph, Node};
 
-#[derive(Clone, Deserialize, Serialize)]
-pub struct Os {
-    pub id: protocal::ID,
-    pub display_name: String,
-}
-
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
-struct LowOs {
-    id: protocal::ID,
-}
-
-#[derive(Hash, Eq, PartialEq, Clone)]
-struct HighOs {
-    id: protocal::ID,
-    display_name: String,
-    unknown_edge: Vec<GrubSec>,
-}
-
-impl IntoLow for HighOs {
-    type Low = LowOs;
-
-    fn into_low(&self) -> Self::Low {
-        LowOs { id: self.id }
-    }
-}
-
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
-pub enum OsStatus<T> {
-    Down,
-    Up(T),
-}
-
-impl<T> OsStatus<T> {
-    fn map<F, O>(self, f: F) -> OsStatus<O>
-    where
-        F: Fn(T) -> O,
-    {
-        match self {
-            OsStatus::Down => OsStatus::Down,
-            OsStatus::Up(x) => OsStatus::Up(f(x)),
-        }
-    }
-}
-
-impl<T> IntoLow for OsStatus<T>
-where
-    T: IntoLow,
-{
-    type Low = OsStatus<T::Low>;
-
-    fn into_low(&self) -> Self::Low {
-        match self {
-            OsStatus::Down => OsStatus::Down,
-            OsStatus::Up(x) => OsStatus::Up(x.into_low()),
-        }
-    }
-}
-
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize, Debug)]
 pub enum BootMethod {
     WOL,
-    Grub(GrubSec),
+    Grub(GrubId),
     Shutdown,
 }
 
@@ -92,287 +29,238 @@ impl BootMethod {
                     packet.get_mac_address()
                 );
                 packet.write_reboot(*x).await?;
+                packet.read_reboot().await?;
                 packet.wait_reconnect().await?;
             }
             BootMethod::Shutdown => {
                 log::trace!("shuting down host {:?}", packet.get_mac_address());
                 packet.write_shutdown().await?;
+                packet.read_shutdown().await?;
             }
         };
         Ok(())
     }
 }
 
-pub struct IntBootGraph {
-    graph: Graph<OsStatus<LowOs>, BootMethod>,
-    packet: TcpPacket,
-    unknown_os: Vec<HighOs>,
-    ioss: Vec<HighOs>,
-    id_counter: protocal::ID,
-    mac_address: [u8; 6],
+#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize, Debug)]
+pub enum OsStatus {
+    Down,
+    Up(ID),
 }
 
-impl IntBootGraph {
-    pub async fn new(packet: TcpPacket, id_counter: protocal::ID) -> Result<IntBootGraph, Error> {
-        let mac_address = packet.get_mac_address().clone();
-        let mut self_ = IntBootGraph {
-            graph: Graph::new(),
+struct Helper {
+    packet: TcpPacket,
+    unknowns: HashMap<ID, Vec<BootMethod>>,
+    offline: Node,
+    graph: BootGraph,
+}
+
+impl Helper {
+    fn new(packet: TcpPacket) -> Self {
+        log::debug!("bootgraph helper is constructed");
+        let mut graph = BootGraph::default();
+        let offline = graph.graph.add_node(OsStatus::Down);
+        Self {
             packet,
-            unknown_os: vec![],
-            id_counter,
-            ioss: vec![],
-            mac_address,
-        };
-
-        // reboot to ensure correct first-boot os
-        log::debug!("initing first-boot os");
-        self_.packet.write_shutdown().await?;
-        self_.packet.read_shutdown().await?;
-        self_.packet.wol_reconnect().await?;
-
-        // construct shutdown->first-boot-os on boot_graph
-        let shutdown_node = self_.graph.add_node(OsStatus::Down);
-        let fboot_os = self_
-            .issue_id()
-            .await?
-            .ok_or(Error::UndefinedClientBehavior)?;
-        let fboot_node = self_
-            .graph
-            .add_node(OsStatus::Up(fboot_os.clone()).into_low());
-
-        self_
-            .graph
-            .connect(shutdown_node, fboot_node, BootMethod::WOL);
-        self_
-            .graph
-            .connect(fboot_node,shutdown_node, BootMethod::Shutdown);
-
-        // add fboot os to unknown
-        self_.unknown_os.push(fboot_os);
-
-        Ok(self_)
-    }
-    /// try to issue id
-    ///
-    /// If issue id successfully, query osinfo additionally(and return IntermediateOs)
-    async fn issue_id(&mut self) -> Result<Option<HighOs>, Error> {
-        if self.packet.get_uid().await? == 0 {
-            let id = self.id_counter.clone();
-            self.id_counter += 1;
-            log::debug!("initing new os with id {}", id);
-
-            self.packet.write_init_id(id).await?;
-            self.packet.read_init_id().await?;
-            self.packet.set_uid(id)?;
-            log::trace!("set id {}", id);
-
-            self.packet.write_os_query().await?;
-            let os_info = self.packet.read_os_query().await?;
-            log::trace!("get os_info of {:?}", os_info);
-
-            self.packet.write_grub_query().await?;
-            let grub_info: Vec<GrubSec> = self
-                .packet
-                .read_grub_query()
-                .await?
-                .into_iter()
-                .map(|info| info.grub_sec)
-                .collect();
-            log::trace!("get grub_info of {:?}", grub_info);
-
-            let os = HighOs {
-                id: self.packet.get_uid().await?,
-                display_name: os_info.display_name,
-                unknown_edge: grub_info,
-            };
-            self.ioss.push(os.clone());
-            Ok(Some(os))
-        } else {
-            Ok(None)
+            unknowns: HashMap::new(),
+            offline,
+            graph,
         }
     }
-    /// Returns the trace(a series of BootMethod) to closest os with unknown edge
-    async fn get_closest_trace(&mut self) -> Result<(HighOs, Vec<BootMethod>), Error> {
-        let current_os = LowOs {
-            id: self.packet.get_uid().await?,
-        };
-        let current_node = self
-            .graph
-            .find_node(&OsStatus::Up(current_os))
-            .ok_or(Error::BadGraph)?;
-
-        let dijkstra = self.graph.dijkstra(&current_node);
-
-        // get the index of closest os
-        let unknown_os: Vec<LowOs> = self
-            .unknown_os
-            .iter()
-            .map(|ios| ios.clone().into_low())
-            .collect();
-        let unknown_os_distance: Vec<usize> = unknown_os
-            .into_iter()
-            .map(|os| {
-                // TODO: here should return Err(Error:BadGraph)
-                let node = self.graph.find_node(&OsStatus::Up(os)).unwrap();
-                dijkstra.to(&node).unwrap()
-            })
-            .collect();
-        let min_index = unknown_os_distance
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.cmp(b))
-            .map(|(index, _)| index)
-            .unwrap();
-
-        let closest_node = self
-            .graph
-            .find_node(&OsStatus::Up(self.unknown_os[min_index].into_low()))
-            .unwrap();
-        let trace = dijkstra.trace(&closest_node).unwrap();
-        let trace = trace.iter().map(|x| (*x).clone()).collect();
-
-        let os = self.unknown_os.swap_remove(min_index);
-
-        Ok((os, trace))
+    async fn set_uid(&mut self) -> Result<ID, Error> {
+        let uid = self.graph.id_counter;
+        self.graph.id_counter += 1;
+        self.packet.set_uid(uid)?;
+        self.packet.write_init_id(uid).await?;
+        self.packet.read_init_id().await?;
+        log::trace!("os id of ${} was issue for the client",uid);
+        Ok(uid)
     }
-    pub fn disassemble(self) -> (BootGraph, TcpPacket, protocal::ID) {
-        let mut map = IndexMap::new();
-
-        for ios in self.ioss {
-            map.insert(
-                ios.into_low(),
-                Os {
-                    id: ios.id,
-                    display_name: ios.display_name,
-                },
+    async fn init_os(&mut self) -> Result<(), Error> {
+        let uid = self.set_uid().await?;
+        // perform grub query
+        self.packet.write_grub_query().await?;
+        let grub_list = self.packet.read_grub_query().await?;
+        if !grub_list.is_empty(){
+            self.unknowns.insert(
+                uid,
+                grub_list.into_iter().map(|info| BootMethod::Grub(info.grub_sec)).collect(),
             );
         }
+        // perform os query
+        self.packet.write_os_query().await?;
+        let os_query = self.packet.read_os_query().await?;
+        let os_info = OsInfo::from_query(os_query);
+        // build graph
+        log::debug!("inited os {}",os_info.display_name);
+        self.graph.os.insert(uid, os_info);
+        let node = self.graph.graph.add_node(OsStatus::Up(uid));
+        self.graph
+            .graph
+            .connect(node, self.offline, BootMethod::Shutdown);
+        Ok(())
+    }
+    async fn get_node(&self) -> Result<Node, Error> {
+        let uid = self.packet.get_uid().await?;
+        Ok(self.graph.graph.find_node(&OsStatus::Up(uid)).unwrap())
+    }
+    async fn trace_unknown(&mut self) -> Result<BootMethod, Error> {
+        let uid = self.packet.get_uid().await?;
+        let list=self.unknowns.get_mut(&uid).ok_or(Error::BadGraph).unwrap();
+        let path=list.pop().ok_or(Error::BadGraph).unwrap();
+        if list.is_empty(){
+            self.unknowns.remove(&uid).unwrap();
+        }
+        path.execute(&mut self.packet).await?;
+        log::trace!("randomly picked a unknown edge to discover");
+        Ok(path)
+    }
+    async fn reset(&mut self) -> Result<(), Error> {
+        self.packet.write_shutdown().await?;
+        self.packet.read_shutdown().await?;
+        self.packet.wol_reconnect().await?;
+        Ok(())
+    }
+    async fn trace_closest_with_unknown(&mut self) -> Result<(), Error> {
+        let from_node = self.get_node().await?;
+        let dijkstra = self.graph.graph.dijkstra(&from_node);
 
-        (
-            BootGraph {
-                graph: self.graph,
-                os: map,
-            },
-            self.packet,
-            self.id_counter,
-        )
+        let unsafe_node = unsafe { Node::new(0) };
+        let closest_node = self
+            .unknowns
+            .iter()
+            .map(|(uid, _)| {
+                let node = self.graph.graph.find_node(&OsStatus::Up(*uid)).unwrap();
+                let distance = dijkstra.to(&node).unwrap_or(usize::MAX);
+                (node, distance)
+            })
+            .fold(
+                (unsafe_node, usize::MAX),
+                |(acc_node, acc_distance), (node, distance)| {
+                    if acc_distance > distance {
+                        (node, distance)
+                    } else {
+                        (acc_node, acc_distance)
+                    }
+                },
+            )
+            .0;
+        let trace = dijkstra
+            .trace(&closest_node)
+            .unwrap();
+        for pat in trace{
+            pat.execute(&mut self.packet).await?;
+        }
+        log::trace!("booted to closest node with unknown edge");
+        Ok(())
+    }
+    async fn construct_wol_edge(&mut self)-> Result<(), Error> {
+        let offline = self.offline;
+        let node = self.get_node().await?;
+        self.graph.graph.connect(offline, node, BootMethod::WOL);
+        Ok(())
+    }
+    async fn is_os_inited(&self) -> Result<bool, Error> {
+        Ok(self.packet.get_uid().await? != 0)
     }
     fn is_finish(&self) -> bool {
-        self.unknown_os.is_empty()
+        self.unknowns.is_empty()
     }
-    pub async fn try_yield(&mut self) -> Result<(), Error> {
-        let shutdown_node = self
-            .graph
-            .find_node(&OsStatus::Down)
-            .ok_or(Error::BadGraph)?;
-        log::debug!("building graph...");
-        while !self.is_finish() {
-            #[cfg(debug_assertions)]
-            log::trace!("current graph: {:?}",self.graph);
-            let (mut ios, trace) = self.get_closest_trace().await?;
-
-            for method in &trace {
-                method.execute(&mut self.packet).await?;
-            }
-
-            let from = ios.into_low();
-            let from = self
-                .graph
-                .find_node(&OsStatus::Up(from))
-                .ok_or(Error::BadGraph)?;
-            let grub_sec = ios.unknown_edge.pop().ok_or(Error::BadGraph)?;
-            let method = BootMethod::Grub(grub_sec);
-
-            method.execute(&mut self.packet).await?;
-
-            let dist = match self.issue_id().await? {
-                Some(ios) => {
-                    let dist_os = ios.into_low();
-                    let dist=self.graph.add_node(OsStatus::Up(dist_os.clone()));
-                    self.graph.connect(dist,shutdown_node, BootMethod::Shutdown);
-                    dist_os
-                }
-                None => LowOs {
-                    id: self.packet.get_uid().await?,
-                },
-            };
-
-            let dist = self.graph.find_node(&OsStatus::Up(dist)).unwrap();
-
-            self.graph.connect(from, dist, method);
-
-            // put ios back if not fully emptied yet
-            if !ios.unknown_edge.is_empty() {
-                self.unknown_os.push(ios);
-            }
-        }
-        log::debug!("finish boot graph");
-        Ok(())
+    fn finialize(self)->(BootGraph,TcpPacket){
+        (self.graph,self.packet)
     }
 }
 
-// TODO: use Mutex in BootGraph to change display_name on fly
-#[derive(Clone, Deserialize, Serialize, Default)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct BootGraph {
-    graph: Graph<OsStatus<LowOs>, BootMethod>,
-    os: IndexMap<LowOs, Os>,
+    graph: Graph<OsStatus, BootMethod>,
+    os: IndexMap<ID, OsInfo>,
+    id_counter: ID,
 }
 
-pub type OsId = protocal::ID;
+impl Default for BootGraph {
+    fn default() -> Self {
+        Self { graph: Default::default(), os: Default::default(), id_counter: 1 }
+    }
+}
 
 impl BootGraph {
-    pub async fn current_os(&self, packet: &TcpPacket) -> Result<OsStatus<&Os>, Error> {
+    pub async fn new(packet: TcpPacket) -> Result<(Self,TcpPacket), Error> {
+        let mut helper = Helper::new(packet);
+        helper.reset().await?;
+        helper.init_os().await?;
+        helper.construct_wol_edge().await?;
+
+        while !helper.is_finish() {
+            if !helper.is_os_inited().await? {
+                helper.init_os().await?;
+            }
+            // boot to a node with unknown edge
+            helper.trace_closest_with_unknown().await?;
+            let from_node=helper.get_node().await?;
+            // boot to any unknown edge
+            let unknown_edge=helper.trace_unknown().await.unwrap();
+            if !helper.is_os_inited().await? {
+                helper.init_os().await?;
+            }
+            let to_node=helper.get_node().await?;
+            helper.graph.graph.connect(from_node, to_node, unknown_edge);
+        }
+        Ok(helper.finialize())
+    }
+    pub async fn current_os(&self, packet: &TcpPacket) -> Result<OsStatus, Error> {
         match packet.get_uid().await {
             Ok(x) => {
-                let os = self.os.get(&LowOs { id: x });
-                match os {
-                    Some(x) => Ok(OsStatus::Up(x)),
-                    None => Err(Error::UndefinedClientBehavior),
-                }
+                Ok(OsStatus::Up(x))
             }
             Err(e) => {
-                if let packet::Error::ClientOffline = e {
-                    Ok(OsStatus::Down)
-                } else {
-                    Err(e.into())
+                match e {
+                    packet::Error::ClientOffline => Ok(OsStatus::Down),
+                    _ => Err(e.into()),
                 }
             }
         }
     }
-    pub fn list_os(&self) -> impl Iterator<Item = &Os> {
-        self.os.iter().map(|(_, v)| v)
+    pub fn list_os(&self) -> impl Iterator<Item = (&ID,&OsInfo)> {
+        self.os.iter()
     }
-    pub fn find_os(&self, os: OsId) -> Option<&Os> {
-        self.os.get(&LowOs { id: os })
+    pub fn find_os(&self, os: ID) -> Option<&OsInfo> {
+        self.os.get(&os)
     }
-    pub async fn boot_into(
-        &self,
-        os: OsStatus<protocal::ID>,
-        packet: &mut TcpPacket,
-    ) -> Result<(), Error> {
-        let from = self.current_os(packet).await?.map(|x| LowOs { id: x.id });
-        let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
+    pub async fn boot(&self,os:OsStatus,packet:&mut TcpPacket)->Result<(),Error>{
+        let from_os=match packet.get_uid().await{
+            Ok(x) => Ok(OsStatus::Up(x)),
+            Err(err) => match err{
+                packet::Error::ClientOffline => Ok(OsStatus::Down),
+                packet::Error::Timeout |  packet::Error::Conn(_) => Err(err).into(),
+            },
+        }?;
+        let from_node=self.graph.find_node(&from_os).ok_or(Error::BadGraph)?;
+        let to_node=self.graph.find_node(&os).ok_or(Error::BadGraph)?;
 
-        let to = match os {
-            OsStatus::Down => OsStatus::Down,
-            OsStatus::Up(id) => OsStatus::Up(LowOs { id: id }),
-        };
-        let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
-
-        for method in self
-            .graph
-            .dijkstra(&from)
-            .trace(&to)
-            .ok_or(Error::BadGraph)?
-        {
-            method.execute(packet).await?;
+        let dijkstra=self.graph.dijkstra(&from_node);
+        let trace=dijkstra.trace(&to_node).ok_or(Error::BadGraph)?;
+        for pat in trace{
+            pat.execute(packet).await?;
         }
-
         Ok(())
     }
 }
-#[derive(thiserror::Error, Debug)]
 
+#[derive(Clone, Deserialize, Serialize)]
+pub struct OsInfo {
+    pub display_name: String,
+}
+
+impl OsInfo {
+    fn from_query(query: proto::prelude::host::OsQuery) -> Self {
+        Self {
+            display_name: query.display_name,
+        }
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Unknown Client Behavior")]
     UndefinedClientBehavior,

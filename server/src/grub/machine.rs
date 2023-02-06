@@ -209,11 +209,7 @@ impl Machine {
     ) -> Result<(Machine, TcpPacket), Error> {
         let mac_address = packet.get_mac_address().clone();
         let id_counter = 1;
-        let mut boot_graph = IntBootGraph::new(packet, id_counter).await?;
-
-        boot_graph.try_yield().await?;
-
-        let (boot_graph, packet, _) = boot_graph.disassemble();
+        let (mut boot_graph,packet) = BootGraph::new(packet).await?;
 
         log::info!("finish machine with name {}", display_name);
         let machine = Machine {
@@ -231,7 +227,7 @@ impl Machine {
         Ok(match packet {
             Some(packet) => match self.boot_graph.current_os(packet).await? {
                 OsStatus::Down => None,
-                OsStatus::Up(os) => Some(os.id),
+                OsStatus::Up(os) => Some(os),
             },
             None => None,
         })

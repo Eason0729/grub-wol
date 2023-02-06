@@ -150,7 +150,6 @@ where
     ///
     /// return None if the signal match a caller, Some(payload) otherwise
     pub fn signal(&self, s: &S, payload: P) -> Option<P> {
-        log::trace!("signal {:?} sent", s);
         let mut registry = self.registry.lock().unwrap();
 
         while registry.signals.contains_key(s) {
@@ -169,7 +168,6 @@ where
         let mut registry = self.registry.lock().unwrap();
         let id = registry.id_counter;
         registry.id_counter += 1;
-        log::trace!("hook registered with signal {:?}, id {}", signal, id);
 
         registry.signals.push(signal, id);
 

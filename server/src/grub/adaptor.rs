@@ -30,9 +30,9 @@ impl<'a> Convert<api::OsList<'a>> for OsListAdaptor {
                 let oss = machine
                     .boot_graph
                     .list_os()
-                    .map(|os| api::OsInfoInner {
-                        display_name: Cow::Borrowed(&os.display_name),
-                        id: os.id,
+                    .map(|(&id,info)| api::OsInfoInner {
+                        display_name: Cow::Borrowed(&info.display_name),
+                        id,
                     })
                     .collect();
                 Ok(serde_json::to_vec(&api::OsList { oss }).unwrap())
@@ -142,7 +142,7 @@ impl Convert<api::BootRes> for BootAdaptor {
 
         match out_packet {
             Some(mut packet) => {
-                let raw = match machine.boot_graph.boot_into(os, &mut packet).await {
+                let raw = match machine.boot_graph.boot(os, &mut packet).await {
                     Ok(_) => api::BootRes::Success,
                     Err(e) => {
                         warn!("{}", e);

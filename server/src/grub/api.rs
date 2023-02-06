@@ -109,14 +109,14 @@ pub struct MachineInfoInner<'a> {
 pub enum MachineState {
     Down { kind: MustBe!("Down") },
     Uninited { kind: MustBe!("Uninited") },
-    Up { id: ID },
+    Up { kind: MustBe!("Up"), id: ID },
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum OsStatus {
     Down { kind: MustBe!("Down") },
-    Up { id: ID },
+    Up { kind: MustBe!("Up"), id: ID },
 }
 
 #[derive(Deserialize, Serialize)]

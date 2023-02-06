@@ -215,6 +215,7 @@ impl Machine {
 
         let (boot_graph, packet, _) = boot_graph.disassemble();
 
+        log::info!("finish machine with name {}", display_name);
         let machine = Machine {
             display_name: Mutex::new(display_name),
             mac_address,

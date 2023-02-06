@@ -6,6 +6,7 @@ use super::machine::{Error, Machine, Server};
 use super::{api, bootgraph};
 use async_trait::async_trait;
 use log::warn;
+use monostate::MustBe;
 use monostate::MustBeStr::MustBeStr;
 use serde::Serialize;
 
@@ -59,7 +60,10 @@ impl<'a> Convert<api::MachineInfo<'a>> for MachineInfoAdaptor {
                     display_name: Some(Cow::Borrowed(&display_name)),
                     mac_address: Cow::Borrowed(&machine.mac_address),
                     state: match current_os {
-                        Some(os) => api::MachineState::Up { id: os },
+                        Some(os) => api::MachineState::Up {
+                            kind: MustBe!("Up"),
+                            id: os,
+                        },
                         None => api::MachineState::Down { kind: MustBeStr },
                     },
                 }))
@@ -87,7 +91,10 @@ impl<'a> Convert<api::MachineList<'a>> for MachineListAdaptor<'a> {
             machines.push(api::MachineInfoInner {
                 display_name: Some(Cow::Owned(display_name)),
                 state: match current_os {
-                    Some(os) => api::MachineState::Up { id: os },
+                    Some(os) => api::MachineState::Up {
+                        kind: MustBe!("Up"),
+                        id: os,
+                    },
                     None => api::MachineState::Down { kind: MustBeStr },
                 },
                 mac_address: Cow::Borrowed(mac_address),
@@ -121,7 +128,7 @@ impl Convert<api::BootRes> for BootAdaptor {
     async fn convert(self) -> Result<Vec<u8>, Error> {
         let os = match self.os {
             api::OsStatus::Down { kind: _ } => bootgraph::OsStatus::Down,
-            api::OsStatus::Up { id } => bootgraph::OsStatus::Up(id),
+            api::OsStatus::Up { kind: _, id } => bootgraph::OsStatus::Up(id),
         };
 
         if self.machine.is_none() {
@@ -171,7 +178,10 @@ impl<'a> Convert<api::NewMachineRes> for NewMachineAdaptor<'a> {
                     api::NewMachineRes::NotFound
                 }
             }
-            Err(_) => api::NewMachineRes::Fail,
+            Err(err) => {
+                log::warn!("{:?}", err);
+                api::NewMachineRes::Fail
+            }
         })
         .unwrap())
     }

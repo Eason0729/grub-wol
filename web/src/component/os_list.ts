@@ -90,6 +90,10 @@ export class OsList extends LitElement {
     }
     return handler
   }
+  change_name(e:Event){
+    const input = e.target as HTMLInputElement;
+    this.info.display_name=input.value;
+  }
   render() {
     // trigger event of fetching os_list (running in background)
     return html`
@@ -108,7 +112,7 @@ export class OsList extends LitElement {
       <div class="block">
         <div class="field is-grouped">
           <div class="control is-expanded">
-            <input class="input" type="text" .value=${this.info.display_name} placeholder="Enter Display Name of this Machine" disable>
+            <input class="input" type="text" .value=${this.info.display_name} @input=${this.change_name} placeholder="Enter Display Name of this Machine" disable>
           </div>
           <div class="control">
             ${this.info.state.kind=="Uninited"? html`

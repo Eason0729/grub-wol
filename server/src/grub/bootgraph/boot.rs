@@ -20,7 +20,7 @@ pub struct Os {
     pub display_name: String,
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
 struct LowOs {
     id: protocal::ID,
 }
@@ -40,7 +40,7 @@ impl IntoLow for HighOs {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
 pub enum OsStatus<T> {
     Down,
     Up(T),
@@ -72,7 +72,7 @@ where
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize)]
+#[derive(Hash, Eq, PartialEq, Clone, Deserialize, Serialize,Debug)]
 pub enum BootMethod {
     WOL,
     Grub(GrubSec),
@@ -128,7 +128,6 @@ impl IntBootGraph {
         log::debug!("initing first-boot os");
         self_.packet.write_shutdown().await?;
         self_.packet.read_shutdown().await?;
-        log::trace!("signal down");
         self_.packet.wol_reconnect().await?;
 
         // construct shutdown->first-boot-os on boot_graph
@@ -144,6 +143,9 @@ impl IntBootGraph {
         self_
             .graph
             .connect(shutdown_node, fboot_node, BootMethod::WOL);
+        self_
+            .graph
+            .connect(fboot_node,shutdown_node, BootMethod::Shutdown);
 
         // add fboot os to unknown
         self_.unknown_os.push(fboot_os);
@@ -159,19 +161,19 @@ impl IntBootGraph {
             self.id_counter += 1;
             log::debug!("initing new os with id {}", id);
 
-            self.packet.write_initid(id).await?;
-            self.packet.read_initid().await?;
+            self.packet.write_init_id(id).await?;
+            self.packet.read_init_id().await?;
             self.packet.set_uid(id)?;
             log::trace!("set id {}", id);
 
-            self.packet.write_osquery().await?;
-            let os_info = self.packet.read_osquery().await?;
+            self.packet.write_os_query().await?;
+            let os_info = self.packet.read_os_query().await?;
             log::trace!("get os_info of {:?}", os_info);
 
-            self.packet.write_grubquery().await?;
+            self.packet.write_grub_query().await?;
             let grub_info: Vec<GrubSec> = self
                 .packet
-                .read_grubquery()
+                .read_grub_query()
                 .await?
                 .into_iter()
                 .map(|info| info.grub_sec)
@@ -263,7 +265,10 @@ impl IntBootGraph {
             .graph
             .find_node(&OsStatus::Down)
             .ok_or(Error::BadGraph)?;
+        log::debug!("building graph...");
         while !self.is_finish() {
+            #[cfg(debug_assertions)]
+            log::trace!("current graph: {:?}",self.graph);
             let (mut ios, trace) = self.get_closest_trace().await?;
 
             for method in &trace {
@@ -283,11 +288,8 @@ impl IntBootGraph {
             let dist = match self.issue_id().await? {
                 Some(ios) => {
                     let dist_os = ios.into_low();
-                    let dist = self
-                        .graph
-                        .find_node(&OsStatus::Up(dist_os.clone()))
-                        .unwrap();
-                    self.graph.connect(shutdown_node, dist, BootMethod::WOL);
+                    let dist=self.graph.add_node(OsStatus::Up(dist_os.clone()));
+                    self.graph.connect(dist,shutdown_node, BootMethod::Shutdown);
                     dist_os
                 }
                 None => LowOs {
@@ -368,24 +370,6 @@ impl BootGraph {
 
         Ok(())
     }
-    // pub async fn off(&self, packet: &mut Packet<'_>, mac_address: [u8; 6]) -> Result<(), Error> {
-    //     let from = self.current_os(packet)?.map(|x| LowOs { id: x.id });
-    //     let from = self.graph.find_node(&from).ok_or(Error::BadGraph)?;
-
-    //     let to = OsStatus::Down;
-    //     let to = self.graph.find_node(&to).ok_or(Error::BadGraph)?;
-
-    //     for method in self
-    //         .graph
-    //         .dijkstra(&from)
-    //         .trace(&to)
-    //         .ok_or(Error::BadGraph)?
-    //     {
-    //         method.execute(packet, &mac_address).await?;
-    //     }
-
-    //     Ok(())
-    // }
 }
 #[derive(thiserror::Error, Debug)]
 
@@ -397,11 +381,3 @@ pub enum Error {
     #[error("Packet Error")]
     PacketError(#[from] packet::Error),
 }
-
-// #[cfg(test)]
-// mod test{
-//     #[test]
-//     fn new_intgraph(){
-
-//     }
-// }

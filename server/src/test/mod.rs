@@ -20,16 +20,24 @@ async fn test_main() {
                 log::trace!("recieived callback Handshake");
                 continue;
             }
-            server::Packet::Reboot(x) => state.boot_by(x),
+            server::Packet::Reboot(x) => {
+                let res = state.boot_by(x);
+                state.conn().send(res).await.unwrap();
+                state.conn().flush().await.unwrap();
+                state.close().await;
+                sleep(Duration::from_secs(1)).await;
+                state.connect().await;
+                continue;
+            }
             server::Packet::InitId(x) => {
                 log::info!("recieve InitId of {}", x);
                 state.os_mut().change_uid(x)
             }
-            server::Packet::ShutDown => {
-                state.conn().send(host::Packet::ShutDown).await.unwrap();
+            server::Packet::Shutdown => {
+                state.conn().send(host::Packet::Shutdown).await.unwrap();
                 state.conn().flush().await.unwrap();
                 state.close().await;
-                sleep(Duration::from_secs(3)).await;
+                sleep(Duration::from_secs(1)).await;
                 state.connect().await;
                 continue;
             }

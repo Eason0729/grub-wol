@@ -5,13 +5,13 @@ pub type GrubQuery=Vec<GrubInfo>;
 pub type Ping=constant::ID;
 pub type Reboot=();
 pub type InitId=();
-pub type ShutDown=();
+pub type Shutdown=();
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub enum Packet {
     Handshake(Handshake),
     Reboot,
     InitId,
-    ShutDown,
+    Shutdown,
     GrubQuery(GrubQuery),
     Ping(Ping),
     OsQuery(OsQuery),

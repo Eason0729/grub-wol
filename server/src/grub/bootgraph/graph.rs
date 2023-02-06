@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 use serde;
 use std::{collections::VecDeque, fmt::Debug, hash::Hash};
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct Graph<V, E>
 where
     V: Hash + Eq,
@@ -241,6 +241,12 @@ impl<E> Edge<E> {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Node(usize);
+
+impl Node {
+    pub unsafe fn new(index: usize) -> Self {
+        Self(index)
+    }
+}
 
 #[cfg(test)]
 mod test {

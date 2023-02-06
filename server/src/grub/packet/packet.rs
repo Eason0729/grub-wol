@@ -33,7 +33,7 @@ pub enum HostPTy {
     Handshake,
     Reboot,
     InitId,
-    ShutDown,
+    Shutdown,
     OsQuery,
 }
 
@@ -45,7 +45,7 @@ impl HostPTy {
             HostP::Ping(_) => HostPTy::Ping,
             HostP::Reboot => HostPTy::Reboot,
             HostP::InitId => HostPTy::InitId,
-            HostP::ShutDown => HostPTy::ShutDown,
+            HostP::Shutdown => HostPTy::Shutdown,
             HostP::OsQuery(_) => HostPTy::OsQuery,
         }
     }
@@ -83,6 +83,7 @@ where
         spawn(async move {
             conn.unwrap().flush().await.ok();
         });
+        log::debug!("PacketIo dropped");
     }
 }
 
@@ -216,7 +217,7 @@ where
 macro_rules! impl_write_packet {
     ($p:ident) => {
         paste! {
-            pub async fn [<write_ $p:lower>](&self,package:proto::prelude::server::$p) -> Result<(), Error> {
+            pub async fn [<write_ $p:snake>](&self,package:proto::prelude::server::$p) -> Result<(), Error> {
                 log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p(package)).await?;
@@ -230,7 +231,7 @@ macro_rules! impl_write_packet {
 macro_rules! impl_write_packet_signal {
     ($p:ident) => {
         paste! {
-            pub async fn [<write_ $p:lower>](&self) -> Result<(), Error> {
+            pub async fn [<write_ $p:snake>](&self) -> Result<(), Error> {
                 log::trace!("sending packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::write(&conn, ServerP::$p).await?;
@@ -244,7 +245,7 @@ macro_rules! impl_write_packet_signal {
 macro_rules! impl_read_packet {
     ($p:ident) => {
         paste! {
-            pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
+            pub async fn [<read_ $p:snake>](&self) -> Result<proto::prelude::host::$p, Error> {
                 log::trace!("reading packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 let res = PacketIo::read(&conn, HostPTy::$p).await?;
@@ -258,8 +259,8 @@ macro_rules! impl_read_packet {
 macro_rules! impl_read_packet_signal {
     ($p:ident) => {
         paste! {
-            pub async fn [<read_ $p:lower>](&self) -> Result<proto::prelude::host::$p, Error> {
-                log::trace!("received {} of 1",stringify!($p));
+            pub async fn [<read_ $p:snake>](&self) -> Result<proto::prelude::host::$p, Error> {
+                log::trace!("reading packet {}",stringify!($p));
                 let conn = self.raw.read().await.as_ref().map(|x| x.conn.clone()).ok_or(Error::ClientOffline)?;
                 PacketIo::read(&conn, HostPTy::$p).await?;
                 log::trace!("received packet {}",stringify!($p));
@@ -275,7 +276,7 @@ where
 {
     impl_write_packet! {Reboot}
     impl_write_packet! {InitId}
-    impl_write_packet_signal! {ShutDown}
+    impl_write_packet_signal! {Shutdown}
     impl_write_packet_signal! {GrubQuery}
     impl_write_packet_signal! {Ping}
     impl_write_packet_signal! {OsQuery}
@@ -284,7 +285,7 @@ where
     impl_read_packet! {Ping}
     impl_read_packet_signal! {Reboot}
     impl_read_packet_signal! {InitId}
-    impl_read_packet_signal! {ShutDown}
+    impl_read_packet_signal! {Shutdown}
     impl_read_packet! {OsQuery}
 
     pub async fn wait_reconnect(&self) -> Result<(), Error> {

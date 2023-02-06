@@ -10,7 +10,7 @@ pub enum Packet {
     Handshake(Handshake),
     Reboot(constant::GrubId), // rpc: execute grub reboot
     InitId(constant::ID),
-    ShutDown,  // rpc: execute grub reboot
+    Shutdown,  // rpc: execute grub reboot
     GrubQuery, // query: query available grub path
     Ping,
     OsQuery, // query: query current os info

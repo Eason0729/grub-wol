@@ -4,6 +4,7 @@ import {BreadCrumb} from './bread_crumb';
 import axios from 'axios';
 
 interface JsonKind {
+    id?: number;
     kind: string;
 }
 
@@ -43,6 +44,11 @@ export class OsList extends LitElement {
       this.os_list=res2.data.oss;
       // TODO: mark active os
     }catch(err){
+      this.info={
+        display_name: '',
+        mac_address: this.info.mac_address,
+        state: {kind:"Uninited"}
+      };
       console.warn("this machine is uninited");
       console.warn(err);
     }
@@ -95,6 +101,7 @@ export class OsList extends LitElement {
     this.info.display_name=input.value;
   }
   render() {
+    let active_os=this.info.state.id||100000;
     // trigger event of fetching os_list (running in background)
     return html`
     <link rel="stylesheet" href="/src/bulma.css">
@@ -142,7 +149,7 @@ export class OsList extends LitElement {
             </tr>
             ${this.info.state.kind=="Up"? html`
             <tr>
-              <td>Operating System id</td>
+              <td>Operating System ID</td>
               <td>${(this.info.state as any).id}</td>
             </tr>
             ` : ""}
@@ -165,9 +172,9 @@ export class OsList extends LitElement {
           </p>
         </div>
         ${this.os_list.map((os)=>html`
-        <a class="panel-block" @click=${this.boot(os.id)} id=os_${os.id}>
-          <input type="checkbox">
-          ${os.display_name} 
+        <a class="panel-block" @click=${this.boot(os.id)}>
+          <input type="checkbox" .checked=${active_os==os.id}>
+          ${os.display_name}&nbsp
           <span class="tag is-success is-light">${os.id}</span>
         </a>
         `)}

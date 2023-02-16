@@ -11,7 +11,6 @@ use std::{collections::*, future::Future};
 
 use async_std::future::timeout;
 use async_std::task::{sleep, spawn};
-use futures_lite::future::race;
 
 use super::hashvec::*;
 

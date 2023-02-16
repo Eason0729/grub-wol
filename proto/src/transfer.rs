@@ -1,5 +1,4 @@
 use async_std::io::{ReadExt, WriteExt};
-use async_std::net;
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::vec;

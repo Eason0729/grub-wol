@@ -2,6 +2,7 @@ use super::packet::{self, TcpPacket, TcpPackets};
 use super::{adaptor, api};
 use async_std::net;
 use async_std::sync::Mutex;
+use async_std::task::spawn;
 
 use super::bootgraph::{self, *};
 use super::serde::{Serde, ServerSave};
@@ -12,6 +13,10 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::{collections::*, io};
+
+lazy_static! {
+    static ref SAVE_PATH: &'static Path = Path::new("./");
+}
 
 type MacAddress = [u8; 6];
 
@@ -83,15 +88,24 @@ impl Server {
             socket,
         }
     }
-    pub async fn save(&self, path: &Path) -> Result<(), Error> {
+    pub async fn save(&self) -> Result<(), Error> {
         log::info!("Backing up Grub server");
-        ServerSave::save(&self, path).await;
+        ServerSave::save(&self, &SAVE_PATH).await;
         Ok(())
     }
     pub async fn load(path: &Path) -> Result<Server, Error> {
         Ok(ServerSave::load(path).await)
     }
     pub async fn start(self_: Arc<Self>) {
+        log::info!("Creating autosave thread");
+        let self_c=self_.clone();
+
+        ctrlc::set_handler(move||{
+            let self_=self_c.clone();
+            spawn(async move{
+                self_.save().await.unwrap();
+            });
+        }).expect("cannot recieve sigterm");
         log::info!("Starting Grub server");
         let listener = net::TcpListener::bind(self_.socket).await.unwrap();
         loop {
@@ -109,13 +123,14 @@ impl Server {
         }
     }
     async fn connect_tcp(&self, stream: net::TcpStream) -> Result<(), Error> {
-        let packet = match self.packets.connect(stream).await? {
-            Some(x) => x,
+        match self.packets.connect(stream).await? {
+            Some(packet) => {
+                self.connect_packet(packet).await?;
+            },
             None => {
-                return Ok(());
             }
         };
-        self.connect_packet(packet).await
+        return Ok(());
     }
     async fn connect_packet(&self, packet: TcpPacket) -> Result<(), Error> {
         let mac_address = packet.get_mac_address().clone();
@@ -194,6 +209,9 @@ pub struct Machine {
 
 impl Machine {
     pub(super) async fn connect(&self, packet: TcpPacket) -> Option<TcpPacket> {
+        let display_name=self.display_name.lock().await;
+        log::trace!("machine {} connected",display_name);
+
         let mut current_packet = self.packet.lock().await;
         match &*current_packet {
             Some(_) => Some(packet),
@@ -208,8 +226,7 @@ impl Machine {
         display_name: String,
     ) -> Result<(Machine, TcpPacket), Error> {
         let mac_address = packet.get_mac_address().clone();
-        let id_counter = 1;
-        let (mut boot_graph,packet) = BootGraph::new(packet).await?;
+        let (boot_graph,packet) = BootGraph::new(packet).await?;
 
         log::info!("finish machine with name {}", display_name);
         let machine = Machine {

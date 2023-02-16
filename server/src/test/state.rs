@@ -4,7 +4,7 @@ use rand::Rng;
 
 use super::transfer::TcpConn;
 
-const Os_VARIETY: usize = 3;
+const OS_VARIETY: usize = 3;
 
 type Conn = TcpConn<host::Packet, server::Packet>;
 
@@ -21,7 +21,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Ubuntu".to_owned(),
-            grub_path: (0..Os_VARIETY)
+            grub_path: (0..OS_VARIETY)
                 .map(|_| Some(rand::thread_rng().gen()))
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -30,7 +30,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Debian".to_owned(),
-            grub_path: (0..Os_VARIETY)
+            grub_path: (0..OS_VARIETY)
                 .map(|_| Some(rand::thread_rng().gen()))
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -39,7 +39,7 @@ impl MachineInfo {
         oss.push(OsInfo {
             uid: 0,
             display_name: "Windows".to_owned(),
-            grub_path: (0..Os_VARIETY)
+            grub_path: (0..OS_VARIETY)
                 .map(|_| None)
                 .collect::<Vec<Option<GrubId>>>()
                 .try_into()
@@ -113,7 +113,7 @@ impl MachineInfo {
 pub struct OsInfo {
     uid: ID,
     display_name: String,
-    grub_path: [Option<GrubId>; Os_VARIETY],
+    grub_path: [Option<GrubId>; OS_VARIETY],
 }
 
 impl OsInfo {

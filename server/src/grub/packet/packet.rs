@@ -74,7 +74,7 @@ where
                     "there are unused packets before PacketIo drop, buffer contain {:?}",
                     read_buffer
                         .iter()
-                        .map(|(ty, value)| ty)
+                        .map(|(ty, _)| ty)
                         .collect::<Vec<&HostPTy>>()
                 );
             }

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use async_std::os;
 use indexmap::IndexMap;
 use proto::prelude::{GrubId, ID};
 use serde::{Deserialize, Serialize};

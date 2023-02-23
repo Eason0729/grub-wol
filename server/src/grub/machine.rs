@@ -1,6 +1,7 @@
 use super::packet::{self, TcpPacket, TcpPackets};
 use super::{adaptor, api};
-use async_std::net;
+use async_std::future::timeout;
+use async_std::{net, process};
 use async_std::sync::Mutex;
 use async_std::task::spawn;
 
@@ -9,6 +10,7 @@ use super::serde::{Serde, ServerSave};
 
 use indexmap::IndexMap;
 use proto::prelude as protocal;
+use core::time;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -103,7 +105,11 @@ impl Server {
         ctrlc::set_handler(move||{
             let self_=self_c.clone();
             spawn(async move{
-                self_.save().await.unwrap();
+                match timeout(time::Duration::from_secs(16), self_.save()).await{
+                    Ok(x) => x.unwrap(),
+                    Err(err) => log::error!("Timeout saving server file {:?}",err),
+                };
+                process::exit(1);
             });
         }).expect("cannot recieve sigterm");
         log::info!("Starting Grub server");

@@ -10,7 +10,7 @@ pub struct MagicPacket {
 
 impl MagicPacket {
     pub fn new(mac_address: &[u8; 6]) -> MagicPacket {
-        log::debug!("construct MagicPacket of {:#?}", mac_address);
+        log::debug!("construct MagicPacket of {:x?}", mac_address);
         MagicPacket {
             packet: {
                 let mac_address: &[u8; 6] = &mac_address;

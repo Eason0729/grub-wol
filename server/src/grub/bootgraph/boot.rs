@@ -19,12 +19,12 @@ impl BootMethod {
     pub async fn execute(&self, packet: &mut TcpPacket) -> Result<(), packet::Error> {
         match self {
             BootMethod::WOL => {
-                log::trace!("waiting host {:?} to boot", packet.get_mac_address());
+                log::trace!("waiting host {:x?} to boot", packet.get_mac_address());
                 packet.wol_reconnect().await?;
             }
             BootMethod::Grub(x) => {
                 log::trace!(
-                    "executing host {:?} to chain load other os",
+                    "executing host {:x?} to chain load other os",
                     packet.get_mac_address()
                 );
                 packet.write_reboot(*x).await?;
@@ -32,7 +32,7 @@ impl BootMethod {
                 packet.wait_reconnect().await?;
             }
             BootMethod::Shutdown => {
-                log::trace!("shuting down host {:?}", packet.get_mac_address());
+                log::trace!("shuting down host {:x?}", packet.get_mac_address());
                 packet.write_shutdown().await?;
                 packet.read_shutdown().await?;
             }

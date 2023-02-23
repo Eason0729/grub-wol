@@ -1,2 +1,2 @@
 #!/bin/bash
-cargo run | grep --color=never  -P "server::"
+cargo run

@@ -8,8 +8,8 @@ use std::time::Duration;
 
 #[async_std::test]
 async fn test_main() {
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
-
+    env_logger::builder().filter_level(log::LevelFilter::Debug).try_init().unwrap();
+    
     let mut state = state::MachineInfo::new();
     state.connect().await;
     loop {

@@ -42,8 +42,10 @@ where
     async fn save(src: &O, path: &Path) {
         let buf = bincode::serialize(&Self::serde(src).await).unwrap();
 
+        log::trace!("Serialized save file");
         let mut file = File::open(path).await.unwrap();
         file.write_all(&buf).await.unwrap();
+        log::info!("Saving Done");
     }
 }
 

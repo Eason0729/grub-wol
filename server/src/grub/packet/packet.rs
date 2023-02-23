@@ -199,7 +199,7 @@ where
         });
 
         PacketIo::write_arc(conn.clone(), handshake_server).await?;
-        log::trace!("Handshake finished");
+        log::trace!("Handshake of {:x?} finished",handshake.mac_address);
 
         Ok(RawPacket { conn, handshake })
     }

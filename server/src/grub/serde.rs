@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 use proto::prelude::SERVER_PORT;
 
 #[async_trait]
-pub trait Serde<O>
+pub trait AsyncState<O>
 where
     Self: for<'a> Deserialize<'a> + Serialize + Default,
     O: Sync,
@@ -57,7 +57,7 @@ pub struct MachineSave {
 }
 
 #[async_trait]
-impl Serde<Machine> for MachineSave {
+impl AsyncState<Machine> for MachineSave {
     async fn serde(machine: &Machine) -> MachineSave {
         MachineSave {
             display_name: (&*machine.display_name.lock().await).clone(),
@@ -81,7 +81,7 @@ pub struct ServerSave {
 }
 
 #[async_trait]
-impl Serde<Server> for ServerSave {
+impl AsyncState<Server> for ServerSave {
     async fn serde(server: &Server) -> ServerSave {
         let mut machines = IndexMap::new();
         for (mac, machine) in &*(server.machines.lock().await) {

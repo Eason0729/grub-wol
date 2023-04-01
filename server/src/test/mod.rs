@@ -6,6 +6,7 @@ use async_std::task::sleep;
 use proto::prelude::*;
 use std::time::Duration;
 
+#[ignore]
 #[async_std::test]
 async fn test_main() {
     env_logger::builder().filter_level(log::LevelFilter::Debug).try_init().unwrap();

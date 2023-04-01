@@ -6,7 +6,7 @@ use async_std::sync::Mutex;
 use async_std::task::spawn;
 
 use super::bootgraph::{self, *};
-use super::serde::{Serde, ServerSave};
+use super::serde::{AsyncState, ServerSave};
 
 use indexmap::IndexMap;
 use proto::prelude as protocal;

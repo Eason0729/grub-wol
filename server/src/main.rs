@@ -6,7 +6,7 @@ extern crate lazy_static;
 pub mod grub;
 #[cfg(test)]
 mod test;
-pub mod web;
+mod web;
 use rand::Rng;
 use web::prelude::*;
 
@@ -14,9 +14,8 @@ use crate::web::route;
 
 #[async_std::main]
 async fn main() {
-
     #[cfg(debug_assertions)]
-    env_logger::builder().filter_module("server", log::LevelFilter::Trace).try_init().unwrap();
+    env_logger::builder().filter_module("server", log::LevelFilter::Debug).try_init().unwrap();
     #[cfg(not(debug_assertions))]
     env_logger::builder().filter_level(log::LevelFilter::Info).try_init().unwrap();
 

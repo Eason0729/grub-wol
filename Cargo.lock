@@ -287,9 +287,9 @@ checksum = "7a40729d2133846d9ed0ea60a8b9541bccddab49cd30f0715a1da672fe9a2524"
 
 [[package]]
 name = "async-trait"
-version = "0.1.62"
+version = "0.1.64"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "689894c2db1ea643a50834b999abf1c110887402542955ff5451dab8f861f9ed"
+checksum = "1cd7fce9ba8c3c042128ce72d8b2ddbf3a05747efb67ea0313c635e10bda47a2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -432,8 +432,13 @@ dependencies = [
 name = "client"
 version = "0.1.0"
 dependencies = [
+ "async-std",
+ "async-trait",
+ "bincode",
  "env_logger",
+ "log",
  "proto",
+ "serde",
 ]
 
 [[package]]
